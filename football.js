@@ -4,7 +4,7 @@
     // 1. Налаштування
     var BASE_URL = 'https://sport-tv.biz'; 
     // Використовуємо AllOrigins (повертає JSON, що надійніше для TV)
-    var PROXY = 'https://api.allorigins.win/get?url=';
+    var PROXY = 'https://corsproxy.io/?';
 
     function Component(object) {
         var comp = new Lampa.InteractionMain(object);
