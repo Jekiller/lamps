@@ -3,7 +3,7 @@
 
     // Налаштування
     var BASE_URL = 'https://liveball.gg'; // Актуальне дзеркало
-    var PROXY = 'https://corsproxy.io/?'; // Проксі для обходу CORS
+    var PROXY = 'https://api.allorigins.win/raw?url='; // Проксі для обходу CORS
 
     function Component(object) {
         var comp = new Lampa.InteractionMain(object);
