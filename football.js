@@ -31,7 +31,7 @@
         comp.loadMainPage = function () {
             var _this = this;
             // Формуємо URL для футболу
-            var url = PROXY + encodeURIComponent(BASE_URL + '/ua/allupcomingsports/1/');
+            var url = encodeURIComponent(BASE_URL + '/ua/allupcomingsports/1/');
 
             Lampa.Network.silent(url, function (html) {
                 try {
