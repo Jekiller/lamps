@@ -3,7 +3,7 @@
 
     // НАЛАШТУВАННЯ
     // Спробуйте ці дзеркала, якщо не працює: 'https://livetv.sx', 'https://livetv873.me'
-    var BASE_URL = 'https://liveru.sx'; 
+    var BASE_URL = 'https://livetv873.me'; 
     var PROXY = 'https://corsproxy.io/?'; 
 
     function Component(object) {
