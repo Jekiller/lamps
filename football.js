@@ -2,7 +2,7 @@
     'use strict';
 
     // Налаштування
-    var BASE_URL = 'https://liveball.gg'; // Актуальне дзеркало
+    var BASE_URL = 'https://liveball.sx'; // Актуальне дзеркало
     var PROXY = 'https://api.allorigins.win/raw?url='; // Проксі для обходу CORS
 
     function Component(object) {
