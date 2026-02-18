@@ -1,16 +1,10 @@
 (function () {
     'use strict';
 
-    var Manifest = {
-        name: 'LiveTV UA Fix',
-        version: '1.2',
-        component: 'livetv_ua_fix'
-    };
-
-    // Налаштування
-    var BASE_URL = 'https://livetv873.me';
-    // Використовуємо AllOrigins, він повертає JSON з полем contents, що краще для JS
-    var PROXY = 'https://api.allorigins.win/get?url=';
+    // НАЛАШТУВАННЯ
+    // Спробуйте ці дзеркала, якщо не працює: 'https://livetv.sx', 'https://livetv873.me'
+    var BASE_URL = 'https://liveru.sx'; 
+    var PROXY = 'https://corsproxy.io/?'; 
 
     function Component(object) {
         var comp = new Lampa.InteractionMain(object);
@@ -25,114 +19,104 @@
         };
 
         comp.build = function () {
-            this.activity.head = Lampa.Template.get('head', { title: 'LiveTV Футбол' });
-            this.activity.line = Lampa.Template.get('items_line', { title: 'Трансляції (Live & Анонс)' });
+            this.activity.head = Lampa.Template.get('head', { title: 'LiveTV (Safe Mode)' });
+            this.activity.line = Lampa.Template.get('items_line', { title: 'Трансляції' });
+            
             this.activity.render().find('.activity__body').append(this.activity.head);
             this.activity.render().find('.activity__body').append(this.activity.line);
+
             this.loadMainPage();
         };
 
         comp.loadMainPage = function () {
             var _this = this;
-            var targetUrl = BASE_URL + '/ua/allupcomingsports/1/';
-            var url = PROXY + encodeURIComponent(targetUrl);
+            // Формуємо URL для футболу
+            var url = PROXY + encodeURIComponent(BASE_URL + '/ua/allupcomingsports/1/');
 
-            console.log('LiveTV: Запит на', url);
-
-            // Використовуємо $.ajax для кращого контролю, ніж Lampa.Network
-            $.ajax({
-                url: url,
-                method: 'GET',
-                dataType: 'json', // AllOrigins повертає JSON
-                success: function(data) {
-                    if (!data || !data.contents) {
-                        _this.showError('Пуста відповідь від проксі');
-                        return;
-                    }
-                    
-                    var items = _this.parseHtml(data.contents);
+            Lampa.Network.silent(url, function (html) {
+                try {
+                    var items = _this.parseHtml(html);
                     
                     if (items.length) {
                         _this.drawItems(items);
                     } else {
                         _this.activity.empty();
-                        Lampa.Noty.show('Список матчів порожній. Можливо сайт змінився.');
+                        Lampa.Noty.show('Список порожній. Змініть дзеркало в коді.');
                     }
-                    _this.activity.loader(false);
-                },
-                error: function(xhr, status, error) {
-                    _this.activity.loader(false);
-                    var msg = 'Помилка: ' + status;
-                    if(xhr.status === 0) msg = 'Блокування CORS або AdBlock';
-                    else if(xhr.status === 403) msg = 'Доступ заборонено (403)';
-                    
-                    _this.showError(msg);
-                    console.error('LiveTV Error:', xhr);
+                } catch (e) {
+                    Lampa.Noty.show('Помилка парсингу: ' + e.message);
+                    _this.activity.empty();
                 }
+                _this.activity.loader(false);
+            }, function (a, c) {
+                _this.activity.loader(false);
+                Lampa.Noty.show('Помилка мережі. Перевірте VPN.');
             });
-        };
-
-        comp.showError = function(msg) {
-            this.activity.empty();
-            Lampa.Noty.show(msg);
-            this.activity.line.append(Lampa.Template.get('empty', {
-                title: 'Помилка',
-                descr: msg + '. Спробуйте увімкнути VPN або змінити дзеркало в коді.'
-            }));
         };
 
         comp.parseHtml = function (html) {
             var doc = new DOMParser().parseFromString(html, 'text/html');
             var items = [];
             
-            // LiveTV: таблична верстка. Шукаємо таблиці з матчами.
-            // Посилання на матчі мають клас "live" або знаходяться в комірках з live.gif
-            var elements = doc.querySelectorAll('table a[href*="eventinfo"]');
+            // Простий пошук всіх посилань на події
+            var elements = doc.querySelectorAll('a');
 
-            elements.forEach(function (el) {
-                // Фільтруємо сміття (посилання на коментарі, архіви і т.д.)
-                var url = el.getAttribute('href');
-                if (!url || !el.querySelector('img') && !el.classList.contains('live')) return;
+            for (var i = 0; i < elements.length; i++) {
+                var el = elements[i];
+                var href = el.getAttribute('href');
 
-                var title = el.innerText.trim();
-                if(!title) return; // Пропускаємо пусті посилання (картинки)
-
-                // Опис (час)
-                var descEl = el.parentNode.querySelector('.evdesc');
-                var subtitle = descEl ? descEl.innerText.replace(/[\n\r\t]+/g, ' ').trim() : '';
-
-                // Іконка
-                var img = './img/img_broken.svg';
-                var parentRow = el.closest('tr');
-                if(parentRow) {
-                    var imgEl = parentRow.querySelector('img');
-                    if(imgEl && imgEl.src && imgEl.src.includes('sport')) {
-                         // Іноді це іконка виду спорту, шукаємо лого ліги
-                         var leagueImg = parentRow.querySelector('img[src*="icons"]');
-                         if(leagueImg) imgEl = leagueImg;
-                    }
+                // Фільтруємо тільки посилання на матчі (eventinfo)
+                if (href && href.indexOf('eventinfo') !== -1) {
                     
-                    if(imgEl) {
-                        img = imgEl.getAttribute('src');
-                        if (img.startsWith('//')) img = 'https:' + img;
-                        else if (img.startsWith('/')) img = BASE_URL + img;
+                    // Перевіряємо, чи є всередині текст (назва матчу)
+                    var title = el.innerText.trim();
+                    if (!title || title.length < 3) continue;
+
+                    // Шукаємо час матчу поруч (в структурі LiveTV)
+                    var parent = el.parentNode; 
+                    var desc = parent ? parent.querySelector('.evdesc') : null;
+                    var subtitle = desc ? desc.innerText.replace(/\s+/g, ' ').trim() : '';
+
+                    // Шукаємо іконку
+                    var img = './img/img_broken.svg';
+                    var row = el.closest('tr');
+                    if (row) {
+                        var imgTag = row.querySelector('img');
+                        if (imgTag) {
+                            var src = imgTag.getAttribute('src');
+                            if (src) {
+                                if (src.indexOf('//') === 0) img = 'https:' + src;
+                                else img = BASE_URL + src;
+                            }
+                        }
+                    }
+
+                    // Формуємо повне посилання
+                    var fullUrl = href;
+                    if (href.indexOf('http') !== 0) {
+                        fullUrl = BASE_URL + href;
+                    }
+
+                    // Перевірка на дублікати
+                    var exists = false;
+                    for (var j = 0; j < items.length; j++) {
+                        if (items[j].url === fullUrl) {
+                            exists = true;
+                            break;
+                        }
+                    }
+
+                    if (!exists) {
+                        items.push({
+                            title: title,
+                            subtitle: subtitle,
+                            url: fullUrl,
+                            img: img
+                        });
                     }
                 }
-
-                // Статус Live
-                var isLive = el.parentNode.innerHTML.includes('live.gif');
-                if(isLive) subtitle = '🔴 ' + subtitle;
-
-                items.push({
-                    title: title,
-                    subtitle: subtitle,
-                    url: url.startsWith('http') ? url : BASE_URL + url,
-                    img: img
-                });
-            });
-
-            // Видаляємо дублікати за URL
-            return items.filter((v,i,a)=>a.findIndex(t=>(t.url===v.url))===i);
+            }
+            return items;
         };
 
         comp.drawItems = function (items) {
@@ -146,10 +130,11 @@
                 card.find('.card__img').attr('src', item.img).css({
                     'object-fit': 'contain',
                     'padding': '10px',
-                    'background': '#e0e0e0'
+                    'background': '#e6e6e6'
                 });
 
                 card.on('hover:enter', function () {
+                    Lampa.Noty.show('Відкриваємо: ' + item.title);
                     _this.openMatch(item.url, item.title);
                 });
                 _this.activity.line.append(card);
@@ -158,95 +143,51 @@
 
         comp.openMatch = function (url, title) {
             Lampa.Loading.start();
-            // AllOrigins знову, щоб отримати контент сторінки матчу
             var proxyUrl = PROXY + encodeURIComponent(url);
 
-            $.ajax({
-                url: proxyUrl,
-                method: 'GET',
-                dataType: 'json',
-                success: function(data) {
-                    Lampa.Loading.stop();
-                    if (!data || !data.contents) {
-                        Lampa.Noty.show('Не вдалося завантажити сторінку матчу');
-                        return;
-                    }
-                    _this.parseMatchPage(data.contents, title);
-                },
-                error: function() {
-                    Lampa.Loading.stop();
-                    Lampa.Noty.show('Помилка мережі при відкритті матчу');
-                }
-            });
-        };
+            Lampa.Network.silent(proxyUrl, function (html) {
+                Lampa.Loading.stop();
+                var found = false;
 
-        comp.parseMatchPage = function(html, title) {
-            var doc = new DOMParser().parseFromString(html, 'text/html');
-            var links = [];
-
-            // 1. Шукаємо AceStream посилання (acestream://)
-            var aceLinks = html.match(/acestream:\/\/[a-z0-9]+/g);
-            if(aceLinks) {
-                aceLinks.forEach((link, idx) => {
-                    links.push({
-                        title: 'AceStream ' + (idx+1),
-                        url: link,
-                        type: 'ace'
-                    });
-                });
-            }
-
-            // 2. Шукаємо веб-плеєри (webplayer.php)
-            var webPlayers = doc.querySelectorAll('a[href*="webplayer.php"]');
-            webPlayers.forEach((el, idx) => {
-                var href = el.getAttribute('href');
-                if (href.startsWith('//')) href = 'https:' + href;
-                else if (href.startsWith('/')) href = BASE_URL + href;
-                
-                links.push({
-                    title: 'Web Player ' + (idx+1),
-                    url: href,
-                    type: 'web'
-                });
-            });
-
-            // 3. Шукаємо прямі m3u8 (рідкість, але буває)
-            var m3u8 = html.match(/["'](https?:\/\/.*?\.m3u8.*?)["']/);
-            if(m3u8) {
-                links.push({
-                    title: 'Direct Stream (HLS)',
-                    url: m3u8[1],
-                    type: 'hls'
-                });
-            }
-
-            if(links.length === 0) {
-                Lampa.Noty.show('Трансляцій не знайдено (або вони ще не почалися)');
-                return;
-            }
-
-            // Показуємо меню вибору
-            Lampa.Select.show({
-                title: 'Виберіть джерело',
-                items: links,
-                onSelect: function(item) {
-                    if(item.type === 'ace') {
-                        // Для AceStream потрібен TorrServe або зовнішній плеєр
-                        if(Lampa.Platform.is('android')) {
-                            Lampa.Android.open(item.url);
-                        } else {
-                            Lampa.Noty.show('AceStream працює тільки через TorrServe/Android');
-                        }
-                    } else if (item.type === 'web') {
-                        // Веб-плеєри LiveTV часто вбудовані, їх важко витягнути
-                        // Пробуємо відкрити в браузері
-                        if(Lampa.Platform.is('android')) Lampa.Android.open(item.url);
-                        else window.open(item.url, '_blank');
+                // 1. Спроба знайти AceStream
+                var aceMatch = html.match(/acestream:\/\/([a-z0-9]+)/);
+                if (aceMatch) {
+                    found = true;
+                    if(Lampa.Platform.is('android')) {
+                        Lampa.Android.open('acestream://' + aceMatch[1]);
                     } else {
-                        // Звичайний потік
-                        Lampa.Player.play({ url: item.url, title: title });
+                        Lampa.Noty.show('Знайдено AceStream. Потрібен Android + TorrServe.');
                     }
+                    return;
                 }
+
+                // 2. Спроба знайти iframe
+                var doc = new DOMParser().parseFromString(html, 'text/html');
+                var iframe = doc.querySelector('iframe[src*="youtube"], iframe[src*="video"]');
+                
+                if (iframe) {
+                    found = true;
+                    var src = iframe.getAttribute('src');
+                    if (src.indexOf('//') === 0) src = 'https:' + src;
+                    Lampa.Player.play({ url: src, title: title });
+                    return;
+                }
+
+                // 3. Якщо нічого не знайшли, але посилання є - відкриваємо браузер
+                if (!found) {
+                    Lampa.Select.show({
+                        title: 'Потік не знайдено',
+                        items: [{ title: 'Відкрити сторінку в браузері', url: url }],
+                        onSelect: function(a) {
+                            if(Lampa.Platform.is('android')) Lampa.Android.open(a.url);
+                            else window.open(a.url, '_blank');
+                        }
+                    });
+                }
+
+            }, function () {
+                Lampa.Loading.stop();
+                Lampa.Noty.show('Помилка завантаження матчу');
             });
         };
 
@@ -254,20 +195,24 @@
     }
 
     function startPlugin() {
-        window.plugin_livetv_fix = true;
-        Lampa.Component.add('livetv_ua_fix', Component);
+        window.plugin_football_safe = true;
+        Lampa.Component.add('football_safe', Component);
         
-        var btn = $('<li class="menu__item selector" data-action="livetv_fix"><div class="menu__ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h20M2 12l4-4m-4 4 4 4M22 12l-4-4m4 4-4 4"/></svg></div><div class="menu__text">LiveTV (Fix)</div></li>');
+        var btn = $('<li class="menu__item selector" data-action="football_safe"><div class="menu__ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"></path><path d="M2 12h20"></path></svg></div><div class="menu__text">Футбол (Safe)</div></li>');
         
         btn.on('hover:enter click', function () {
-            Lampa.Activity.push({ url: '', title: 'LiveTV', component: 'livetv_ua_fix', page: 1 });
+            Lampa.Activity.push({ url: '', title: 'Футбол', component: 'football_safe', page: 1 });
         });
 
         $('.menu .menu__list').append(btn);
     }
 
-    if (!window.plugin_livetv_fix) {
+    if (!window.plugin_football_safe) {
         if (window.appready) startPlugin();
-        else Lampa.Listener.follow('app', function (e) { if (e.type == 'ready') startPlugin(); });
+        else {
+            Lampa.Listener.follow('app', function (e) {
+                if (e.type == 'ready') startPlugin();
+            });
+        }
     }
 })();
