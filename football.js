@@ -1,72 +1,19 @@
 (function () {
     'use strict';
 
+    var Manifest = {
+        name: 'LiveTV UA Fix',
+        version: '1.2',
+        component: 'livetv_ua_fix'
+    };
+
     // Налаштування
     var BASE_URL = 'https://livetv873.me';
-    // Використовуємо AllOrigins, він стабільніший для текстових даних
-    var PROXY_Помилка `[object Object]` означає, що плагін намагається виAPI = 'https://api.allorigins.win/get?url=';
+    // Використовуємо AllOrigins, він повертає JSON з полем contents, що краще для JS
+    var PROXY = 'https://api.allorigins.win/get?url=';
 
     function Component(object) {
         var comp = new Lampa.InteractionMain(object);
-
-        comp.create = function () {
-вести технічну інформацію про помилку, але не може перетворити її на текст. Швидше за все, це **4            this.activity.loader(true);
-            return this.render();
-        };
-
-        comp.start03 Forbidden** (сайт блокує проксі) або **404 Not Found**.
-
-Ось **ви = function () {
-            this.build();
-        };
-
-        comp.build = function () {
-            this.activity.head = Lampa.Template.get('head', { title: 'LiveTV Футбол (Fixправлена версія плагіна**.
-
-### Що змінено:
-1.  **Замінено проксі:** Замі)' });
-            this.activity.line = Lampa.Template.get('items_line', { title: 'Найближчі трансляції' });
-            
-            this.activity.render().find('.activity__сть `corsproxy.io` використано `allorigins.win`. Він працює стабільніше для таких сайтів.
-2.  body').append(this.activity.head);
-            this.activity.render().find('.activity__body').append(this.activity.line);
-
-            this.loadMainPage();
-        };
-
-        comp.load**Виправлено вивід помилок:** Тепер замість `[object Object]` ви побачите конкретний код помилки (наприклад, 404, 500) або текст.
-3.  **Додано декодування:** ДоданоMainPage = function () {
-            var _this = this;
-            var targetUrl = BASE_URL + '/ua/allupcomingsports/1/';
-            var url = PROXY_API + encodeURIComponent(targetUrl);
-
-            console обробку кодування, щоб текст не перетворювався на "кракозябри".
-
-### Оновлений код (.log('LiveTV: Requesting', url);
-
-            Lampa.Network.silent(url, function (responselivetv.js)
-
-```javascript
-(function () {
-    'use strict';
-
-    // На) {
-                // AllOrigins повертає JSON, де HTML лежить в полі .contents
-                try {
-                    varлаштування
-    var BASE_URL = 'https://livetv873.me'; 
-    // Використовуємо json = JSON.parse(response);
-                    if (json.contents) {
-                        var items = _this.parseHtml інший проксі, який часто краще обходить захист
-    var PROXY = 'https://api.allorigins.win(json.contents);
-                        if (items.length) {
-                            _this.drawItems(items);/raw?url='; 
-
-    function Component(object) {
-        var comp = new Lampa.
-                        } else {
-                            _this.activity.empty();
-                            Lampa.Noty.show('InteractionMain(object);
 
         comp.create = function () {
             this.activity.loader(true);
@@ -78,213 +25,128 @@
         };
 
         comp.build = function () {
-            this.activity.head = Lampa.Список порожній. Можливо змінилась верстка.');
-                        }
-                    } else {
-                        throw new Error('ПоTemplate.get('head', { title: 'LiveTV Футбол' });
-            this.activity.line = Lрожня відповідь від проксі');
-                    }
-                } catch (e) {
-                    console.error('ampa.Template.get('items_line', { title: 'Найближчі трансляції' });
-            
+            this.activity.head = Lampa.Template.get('head', { title: 'LiveTV Футбол' });
+            this.activity.line = Lampa.Template.get('items_line', { title: 'Трансляції (Live & Анонс)' });
             this.activity.render().find('.activity__body').append(this.activity.head);
-            this.activity.render().LiveTV Parse Error:', e);
-                    Lampa.Noty.show('Помилка обробки даних');find('.activity__body').append(this.activity.line);
-
+            this.activity.render().find('.activity__body').append(this.activity.line);
             this.loadMainPage();
-        
-                    _this.activity.empty();
-                }
-                _this.activity.loader(false);
-            }, function (a, c) {
-                _this.activity.loader(false);
-                // Виводимо реальну поми};
+        };
 
         comp.loadMainPage = function () {
             var _this = this;
             var targetUrl = BASE_URL + '/ua/allupcomingsports/1/';
-            var url = PROXY + encodeлку замість [object Object]
-                var errorText = (c && c.statusText) ? c.statusText :URIComponent(targetUrl);
+            var url = PROXY + encodeURIComponent(targetUrl);
 
             console.log('LiveTV: Запит на', url);
 
-            Lampa.Network.silent 'Помилка з\'єднання';
-                Lampa.Noty.show('Мережа: ' + errorText);(url, function (html) {
-                // Перевірка, чи не повернув проксі помилку в
+            // Використовуємо $.ajax для кращого контролю, ніж Lampa.Network
+            $.ajax({
+                url: url,
+                method: 'GET',
+                dataType: 'json', // AllOrigins повертає JSON
+                success: function(data) {
+                    if (!data || !data.contents) {
+                        _this.showError('Пуста відповідь від проксі');
+                        return;
+                    }
+                    
+                    var items = _this.parseHtml(data.contents);
+                    
+                    if (items.length) {
+                        _this.drawItems(items);
+                    } else {
+                        _this.activity.empty();
+                        Lampa.Noty.show('Список матчів порожній. Можливо сайт змінився.');
+                    }
+                    _this.activity.loader(false);
+                },
+                error: function(xhr, status, error) {
+                    _this.activity.loader(false);
+                    var msg = 'Помилка: ' + status;
+                    if(xhr.status === 0) msg = 'Блокування CORS або AdBlock';
+                    else if(xhr.status === 403) msg = 'Доступ заборонено (403)';
+                    
+                    _this.showError(msg);
+                    console.error('LiveTV Error:', xhr);
+                }
             });
+        };
+
+        comp.showError = function(msg) {
+            this.activity.empty();
+            Lampa.Noty.show(msg);
+            this.activity.line.append(Lampa.Template.get('empty', {
+                title: 'Помилка',
+                descr: msg + '. Спробуйте увімкнути VPN або змінити дзеркало в коді.'
+            }));
         };
 
         comp.parseHtml = function (html) {
-            var doc = new тексті
-                if (html.length < 500 || html.includes('403 Forbidden') || html.includes('Access DOMParser().parseFromString(html, 'text/html');
+            var doc = new DOMParser().parseFromString(html, 'text/html');
             var items = [];
             
-            // Denied')) {
-                    Lampa.Noty.show('Помилка: Сайт заблокував запит ( Шукаємо таблиці матчів
-            var elements = doc.querySelectorAll('a.live');
+            // LiveTV: таблична верстка. Шукаємо таблиці з матчами.
+            // Посилання на матчі мають клас "live" або знаходяться в комірках з live.gif
+            var elements = doc.querySelectorAll('table a[href*="eventinfo"]');
 
-            elements.403)');
-                    _this.activity.empty();
-                    _this.activity.loader(false);forEach(function (el) {
+            elements.forEach(function (el) {
+                // Фільтруємо сміття (посилання на коментарі, архіви і т.д.)
                 var url = el.getAttribute('href');
-                if (!url ||
-                    return;
-                }
+                if (!url || !el.querySelector('img') && !el.classList.contains('live')) return;
 
-                var items = _this.parseHtml(html);
-                
-                 url.indexOf('eventinfo') === -1) return;
+                var title = el.innerText.trim();
+                if(!title) return; // Пропускаємо пусті посилання (картинки)
 
-                var title = el.innerText.trim();if (items.length) {
-                    _this.drawItems(items);
-                } else {
-                    
-                
-                // Опис (час і ліга)
-                var descEl = el.parentNode.querySelector('.evdesc_this.activity.empty();
-                    Lampa.Noty.show('Список пустий. Можливо,');
-                var subtitle = descEl ? descEl.innerText.replace(/[\n\r]+/g, ' ').trim() : '';
+                // Опис (час)
+                var descEl = el.parentNode.querySelector('.evdesc');
+                var subtitle = descEl ? descEl.innerText.replace(/[\n\r\t]+/g, ' ').trim() : '';
 
-                 змінилась верстка.');
-                }
-                _this.activity.loader(false);
-            }, function (a// Іконка (шукаємо img у батьківській таблиці)
+                // Іконка
                 var img = './img/img_broken.svg';
-                var parentTable = el.closest('table');
-                if(parentTable) {
-                    var img, c) {
-                _this.activity.loader(false);
-                // Нормальний вивід помилки
-El = parentTable.querySelector('img');
-                    if(imgEl && imgEl.src) {
-                                        var errorMsg = 'Мережа: ';
-                if (a && a.status) errorMsg += a.status; 
-                else if (typeof c === 'string') errorMsg += c;
-                else errorMsg += 'Не// AllOrigins іноді ламає відносні шляхи, відновлюємо їх
-                        var src = imgEl.відома помилка';
-                
-                Lampa.Noty.show(errorMsg);
-                console.getAttribute('src');
-                        if (src.startsWith('//')) img = 'https:' + src;
-                        else iferror('LiveTV Error:', a);
-            });
-        };
-
-        comp.parseHtml = function (html (src.startsWith('/')) img = BASE_URL + src;
-                        else img = src;
+                var parentRow = el.closest('tr');
+                if(parentRow) {
+                    var imgEl = parentRow.querySelector('img');
+                    if(imgEl && imgEl.src && imgEl.src.includes('sport')) {
+                         // Іноді це іконка виду спорту, шукаємо лого ліги
+                         var leagueImg = parentRow.querySelector('img[src*="icons"]');
+                         if(leagueImg) imgEl = leagueImg;
+                    }
+                    
+                    if(imgEl) {
+                        img = imgEl.getAttribute('src');
+                        if (img.startsWith('//')) img = 'https:' + img;
+                        else if (img.startsWith('/')) img = BASE_URL + img;
                     }
                 }
 
-                // Перевірка Live
+                // Статус Live
                 var isLive = el.parentNode.innerHTML.includes('live.gif');
                 if(isLive) subtitle = '🔴 ' + subtitle;
 
                 items.push({
                     title: title,
                     subtitle: subtitle,
-                    url: url.startsWith('http') ?) {
-            var doc = new DOMParser().parseFromString(html, 'text/html');
-            var url : BASE_URL + url,
-                    img: img
-                });
-            });
-
-            // Вида items = [];
-            
-            var elements = doc.querySelectorAll('a.live');
-
-            elements.forEach(function (el) {
-                var url = el.getAttribute('href');
-                if (!url || url.indexOf('eventinfo') === -1) return;
-
-                var title = el.innerText.trim();
-                var descEl = el.parentNode.querySelector('.evdesc');
-                var subtitle = descEl ? descEl.ляємо дублікати
-            return items.filter((v,i,a)=>a.findIndex(t=>(t.url===v.url))===i);
-        };
-
-        comp.drawItems = function (innerText.replace(/[\n\r]+/g, ' ').trim() : '';
-
-                var img = './img/img_broken.svg';
-                var parentTable = el.closest('table');
-                if(parentitems) {
-            var _this = this;
-            items.forEach(function (item) {
-                var card = LTable) {
-                    var imgEl = parentTable.querySelector('img');
-                    if(imgEl && imgampa.Template.get('card', {
-                    title: item.title,
-                    release_year: itemEl.src) {
-                        var rawSrc = imgEl.getAttribute('src');
-                        if (rawSrc.startsWith('//')) img = 'https:' + rawSrc;
-                        else if (rawSrc.startsWith('/')) img.subtitle
-                });
-
-                card.find('.card__img').attr('src', item.img).css({
-                    'object- = BASE_URL + rawSrc;
-                        else img = rawSrc;
-                    }
-                }
-
-                fit': 'contain',
-                    'padding': '10px',
-                    'background': '#e0e0e0'
-var isLive = el.parentNode.innerHTML.includes('live.gif');
-                if(isLive) subtitle = '🔴 ' + subtitle;
-
-                items.push({
-                    title: title,
-                    subtitle: subtitle                });
-
-                card.on('hover:enter', function () {
-                    // Відкриваємо в новому вікні/браузері, бо відео на LiveTV 
-                    // дуже складно витягнути автомати,
                     url: url.startsWith('http') ? url : BASE_URL + url,
                     img: img
                 });
             });
 
+            // Видаляємо дублікати за URL
             return items.filter((v,i,a)=>a.findIndex(t=>(t.url===v.url))===i);
         };
 
-        comp.drawItems =чно через захист
-                    Lampa.Select.show({
-                        title: item.title,
-                        items: [ function (items) {
+        comp.drawItems = function (items) {
             var _this = this;
             items.forEach(function (item) {
                 var card = Lampa.Template.get('card', {
                     title: item.title,
-                    release_year: item
-                            {title: 'Відкрити сторінку матчу (Браузер)', id: 'browser'}
-                        ],
-.subtitle
+                    release_year: item.subtitle
                 });
 
                 card.find('.card__img').attr('src', item.img).css({
-                    'object-                        onSelect: function(a) {
-                            if(a.id == 'browser') {
-                                // Використовуємо системний метод відкриття посилань
-                                if(Lampa.Platform.is('android')) Lampa.Android.open(item.url);
-                                else window.open(item.url, '_blank');
-                            }
-                        }
-                    });
-                });
-                _this.activity.line.append(card);
-            });
-        };
-
-        return comp;
-    }
-
-    function startPlugin() {
-        window.plugin_livetv_fix = true;
-        Lampa.Component.add('livetv_fix', Component);
-        
-        var btn = $('<li class="menu__item selector" data-action="livetv_fix"><div class="menu__ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 fit': 'contain',
-                    'padding': '15px',
-                    'background': '#f0f0f0'
+                    'object-fit': 'contain',
+                    'padding': '10px',
+                    'background': '#e0e0e0'
                 });
 
                 card.on('hover:enter', function () {
@@ -296,56 +158,116 @@ var isLive = el.parentNode.innerHTML.includes('live.gif');
 
         comp.openMatch = function (url, title) {
             Lampa.Loading.start();
-            // Для сторінки матчу теж використовуємо новий проксі
+            // AllOrigins знову, щоб отримати контент сторінки матчу
             var proxyUrl = PROXY + encodeURIComponent(url);
 
-            Lampa.Network.silent(proxyUrl, function (html) {
-                Lampa.Loading.stop();
-                var doc = new DOMParser().parseFromString(html0 1 0 10 10A10 10 0 0 0 , 'text/html');
-                var foundLink = null;
+            $.ajax({
+                url: proxyUrl,
+                method: 'GET',
+                dataType: 'json',
+                success: function(data) {
+                    Lampa.Loading.stop();
+                    if (!data || !data.contents) {
+                        Lampa.Noty.show('Не вдалося завантажити сторінку матчу');
+                        return;
+                    }
+                    _this.parseMatchPage(data.contents, title);
+                },
+                error: function() {
+                    Lampa.Loading.stop();
+                    Lampa.Noty.show('Помилка мережі при відкритті матчу');
+                }
+            });
+        };
 
-                // 1. Шукаємо if12 2zm0 18a8 8 0 1 1 8-8 rames
-                var iframes = doc.querySelectorAll('iframe');
-                for(var i=0; i<8 8 0 0 1-8 8z"/><path d="M12 7viframes.length; i++) {
-                    var src = iframes[i].getAttribute('src') || '';5l4.2 2.5"/></svg></div><div class="menu__text">LiveTV Fix
-                    if(src.includes('youtube') || src.includes('player') || src.includes('video')) {
-                        if(src.startsWith('//')) src = 'https:' + src;
-                        foundLink = src</div></li>');
-        
-        btn.on('hover:enter click', function () {
-            Lampa.Activity.push({ url: '', title: 'LiveTV Fix', component: 'livetv_fix', page: 1 });
-        ;
-                        break;
+        comp.parseMatchPage = function(html, title) {
+            var doc = new DOMParser().parseFromString(html, 'text/html');
+            var links = [];
+
+            // 1. Шукаємо AceStream посилання (acestream://)
+            var aceLinks = html.match(/acestream:\/\/[a-z0-9]+/g);
+            if(aceLinks) {
+                aceLinks.forEach((link, idx) => {
+                    links.push({
+                        title: 'AceStream ' + (idx+1),
+                        url: link,
+                        type: 'ace'
+                    });
+                });
+            }
+
+            // 2. Шукаємо веб-плеєри (webplayer.php)
+            var webPlayers = doc.querySelectorAll('a[href*="webplayer.php"]');
+            webPlayers.forEach((el, idx) => {
+                var href = el.getAttribute('href');
+                if (href.startsWith('//')) href = 'https:' + href;
+                else if (href.startsWith('/')) href = BASE_URL + href;
+                
+                links.push({
+                    title: 'Web Player ' + (idx+1),
+                    url: href,
+                    type: 'web'
+                });
+            });
+
+            // 3. Шукаємо прямі m3u8 (рідкість, але буває)
+            var m3u8 = html.match(/["'](https?:\/\/.*?\.m3u8.*?)["']/);
+            if(m3u8) {
+                links.push({
+                    title: 'Direct Stream (HLS)',
+                    url: m3u8[1],
+                    type: 'hls'
+                });
+            }
+
+            if(links.length === 0) {
+                Lampa.Noty.show('Трансляцій не знайдено (або вони ще не почалися)');
+                return;
+            }
+
+            // Показуємо меню вибору
+            Lampa.Select.show({
+                title: 'Виберіть джерело',
+                items: links,
+                onSelect: function(item) {
+                    if(item.type === 'ace') {
+                        // Для AceStream потрібен TorrServe або зовнішній плеєр
+                        if(Lampa.Platform.is('android')) {
+                            Lampa.Android.open(item.url);
+                        } else {
+                            Lampa.Noty.show('AceStream працює тільки через TorrServe/Android');
+                        }
+                    } else if (item.type === 'web') {
+                        // Веб-плеєри LiveTV часто вбудовані, їх важко витягнути
+                        // Пробуємо відкрити в браузері
+                        if(Lampa.Platform.is('android')) Lampa.Android.open(item.url);
+                        else window.open(item.url, '_blank');
+                    } else {
+                        // Звичайний потік
+                        Lampa.Player.play({ url: item.url, title: title });
                     }
                 }
+            });
+        };
 
-                // 2. Шукаємо webplayer
-                if(!foundLink) {
-                    var webplayerLink = doc.querySelector('a[href*="webplayer.php"]');
-                    if});
-
-        if ($('.menu .menu__list').length) {
-            $('.menu .menu__list').append(btn);(webplayerLink) {
-                        var href = webplayerLink.getAttribute('href');
-                        if(href
-        } else {
-            // Фолбек для старих версій
-            $('.activity__menu .activity.startsWith('//')) href = 'https:' + href;
-                        else if(href.startsWith('/')) href__menu-list').append(btn);
-        }
+        return comp;
     }
 
-    if (!window.plugin_liv = BASE_URL + href;
-                        foundLink = href; 
-                    }
-                }
+    function startPlugin() {
+        window.plugin_livetv_fix = true;
+        Lampa.Component.add('livetv_ua_fix', Component);
+        
+        var btn = $('<li class="menu__item selector" data-action="livetv_fix"><div class="menu__ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h20M2 12l4-4m-4 4 4 4M22 12l-4-4m4 4-4 4"/></svg></div><div class="menu__text">LiveTV (Fix)</div></li>');
+        
+        btn.on('hover:enter click', function () {
+            Lampa.Activity.push({ url: '', title: 'LiveTV', component: 'livetv_ua_fix', page: 1 });
+        });
 
-                ifetv_fix) {
+        $('.menu .menu__list').append(btn);
+    }
+
+    if (!window.plugin_livetv_fix) {
         if (window.appready) startPlugin();
-        else Lampa. (foundLink) {
-                    if(foundLink.includes('webplayer.php')) {
-                        LampaListener.follow('app', function (e) { if (e.type == 'ready') startPlugin(); });.Select.show({
-                            title: 'Плеєр',
-                            items: [{title: 'Відкрити в брау
+        else Lampa.Listener.follow('app', function (e) { if (e.type == 'ready') startPlugin(); });
     }
 })();
