@@ -94,7 +94,7 @@ UA_CINEMA.initButtonObserver = function(){
                 
                 if (container.length && !container.find('.ua-cinema-btn').length) {
                     // Використовуємо jQuery (Lampa стандарт)
-                    let btn = $('<div class="full-start__button selector ua-cinema-btn">🇺🇦 Дивись UA1</div>');
+                    let btn = $('<div class="full-start__button selector ua-cinema-btn">🇺🇦 Дивись UA</div>');
                     
                     // hover:enter - це натискання ОК на пульті ТВ. click - для мишки ПК
                     btn.on('hover:enter click', function(){
