@@ -1,571 +1,2955 @@
-(function () {
+
+/*
+#########################################################
+Block 1
+#########################################################
+*/
+
+(function(){
+
 'use strict';
 
-if (window.Lampa) {
-    Lampa.Manifest = {
-        type: 'other',
-        version: '1.0.0',
-        name: 'UA Cinema',
-        description: 'UA Online + UA Torrent Online',
-        component: 'ua_online'
+/*
+#########################################################
+UA Cinema Plugin for Lampa
+Core Block 1
+
+Version: 20
+Author: Vitalik + ChatGPT
+
+This block initializes:
+
+- global namespace
+- config
+- storage engine
+- card data engine
+- button injection
+
+#########################################################
+*/
+
+
+/*
+#########################################################
+GLOBAL NAMESPACE (CRITICAL)
+#########################################################
+*/
+
+if(!window.UA_CINEMA){
+    window.UA_CINEMA = {};
+}
+
+const UA_CINEMA = window.UA_CINEMA;
+
+
+/*
+#########################################################
+CONFIG
+#########################################################
+*/
+
+UA_CINEMA.VERSION = '20';
+
+UA_CINEMA.NAME = 'ua_cinema';
+
+UA_CINEMA.STORAGE_KEY = 'ua_cinema_progress';
+
+UA_CINEMA.DEBUG = false;
+
+UA_CINEMA.SITES_PRIORITY = [
+
+    'uakinogo',
+    'uaserial',
+    'uaserials',
+    'uakino',
+    'uafix',
+    'kinotron',
+    'lavakino',
+    'hdrezka',
+    'filmix'
+
+];
+
+UA_CINEMA.SITES = UA_CINEMA.SITES || {};
+
+
+/*
+#########################################################
+LOGGER
+#########################################################
+*/
+
+UA_CINEMA.log = function(){
+
+    if(!UA_CINEMA.DEBUG) return;
+
+    console.log('[UA_CINEMA]', ...arguments);
+
+};
+
+
+/*
+#########################################################
+UTILS
+#########################################################
+*/
+
+UA_CINEMA.normalizeTitle = function(title){
+
+    if(!title) return '';
+
+    return title
+        .toString()
+        .toLowerCase()
+        .replace(/[^a-zа-яіїє0-9]/gi,'')
+        .trim();
+
+};
+
+
+UA_CINEMA.getYearFromDate = function(date){
+
+    if(!date) return 0;
+
+    if(typeof date === 'number') return date;
+
+    if(typeof date === 'string'){
+        let year = parseInt(date);
+        if(!isNaN(year)) return year;
+    }
+
+    return 0;
+
+};
+
+
+UA_CINEMA.getCardYear = function(card){
+
+    if(!card) return 0;
+
+    if(card.release_date)
+        return UA_CINEMA.getYearFromDate(card.release_date);
+
+    if(card.first_air_date)
+        return UA_CINEMA.getYearFromDate(card.first_air_date);
+
+    if(card.year)
+        return UA_CINEMA.getYearFromDate(card.year);
+
+    return 0;
+
+};
+
+
+/*
+#########################################################
+STORAGE ENGINE
+#########################################################
+*/
+
+UA_CINEMA.storage = UA_CINEMA.storage || {};
+
+UA_CINEMA.storage.getAll = function(){
+
+    let data = Lampa.Storage.get(UA_CINEMA.STORAGE_KEY, {});
+
+    if(!data || typeof data !== 'object')
+        data = {};
+
+    return data;
+
+};
+
+
+UA_CINEMA.storage.get = function(id){
+
+    if(!id) return null;
+
+    let all = UA_CINEMA.storage.getAll();
+
+    return all[id] || null;
+
+};
+
+
+UA_CINEMA.storage.set = function(id,data){
+
+    if(!id) return;
+
+    let all = UA_CINEMA.storage.getAll();
+
+    all[id] = data;
+
+    Lampa.Storage.set(UA_CINEMA.STORAGE_KEY, all);
+
+};
+
+
+UA_CINEMA.storage.remove = function(id){
+
+    let all = UA_CINEMA.storage.getAll();
+
+    delete all[id];
+
+    Lampa.Storage.set(UA_CINEMA.STORAGE_KEY, all);
+
+};
+
+
+/*
+#########################################################
+CARD ENGINE
+#########################################################
+*/
+
+UA_CINEMA.getActiveCard = function(){
+
+    let activity = Lampa.Activity.active();
+
+    if(!activity) return null;
+
+    return activity.card || null;
+
+};
+
+
+UA_CINEMA.getCardData = function(){
+
+    let card = UA_CINEMA.getActiveCard();
+
+    if(!card) return null;
+
+    let poster = '';
+    let backdrop = '';
+
+    if(card.poster_path)
+        poster = Lampa.TMDB.image('w500', card.poster_path);
+
+    if(card.backdrop_path)
+        backdrop = Lampa.TMDB.image('w1280', card.backdrop_path);
+
+    return {
+
+        id: card.id,
+
+        title: card.title || '',
+
+        name: card.name || '',
+
+        original_title: card.original_title || '',
+
+        original_name: card.original_name || '',
+
+        year: UA_CINEMA.getCardYear(card),
+
+        poster: poster,
+
+        backdrop: backdrop,
+
+        card: card
+
     };
-}
-Lampa.Plugin = true;
 
-/* ======================================================
- * GLOBAL HELPERS / STORAGE
- * ====================================================== */
-
-function cid(card){return card.imdb_id||card.kinopoisk_id||card.id;}
-function kVoice(c){return 'ua_voice_'+cid(c);}
-function kProg(c){return 'ua_prog_'+cid(c);}
-function kTime(c,s,e){return `ua_time_${cid(c)}_${s}_${e}`;}
-function kTorrentFile(c){return 'ua_torrent_file_'+cid(c);}
-function kTorrentCache(c){return 'ua_torrent_cache_'+cid(c);}
-
-function saveVoice(c,v){Lampa.Storage.set(kVoice(c),v);}
-function loadVoice(c){return Lampa.Storage.get(kVoice(c),null);}
-function saveProg(c,s,e){Lampa.Storage.set(kProg(c),{season:s,episode:e});}
-function loadProg(c){return Lampa.Storage.get(kProg(c),null);}
-
-let __ts=0;
-function saveTime(c,s,e,t){
- if(Date.now()-__ts<5000)return;
- __ts=Date.now();
- Lampa.Storage.set(kTime(c,s,e),{time:t});
-}
-function loadTime(c,s,e){return Lampa.Storage.get(kTime(c,s,e),null);}
-
-function saveTorrentFile(c,i){Lampa.Storage.set(kTorrentFile(c),i);}
-function loadTorrentFile(c){return Lampa.Storage.get(kTorrentFile(c),null);}
-
-function saveTorrentCache(c,data){
- Lampa.Storage.set(kTorrentCache(c),{time:Date.now(),data});
-}
-function loadTorrentCache(c,ttl){
- const d=Lampa.Storage.get(kTorrentCache(c),null);
- if(!d)return null;
- if(ttl && Date.now()-d.time>ttl)return null;
- return d.data;
-}
-function clearTorrentCache(c){Lampa.Storage.remove(kTorrentCache(c));}
-function clearAllTorrentCache(){
- Object.keys(Lampa.Storage.data||{})
-  .filter(k=>k.startsWith('ua_torrent_cache_'))
-  .forEach(k=>Lampa.Storage.remove(k));
-}
-
-/* ======================================================
- * SETTINGS
- * ====================================================== */
-
-const SETTINGS_KEY='ua_cinema_settings';
-const DEFAULT_SETTINGS={
- quality:'auto',
- autoplay:true,
- ua_priority:true,
- ru_fallback:true,
- torrserver:'http://127.0.0.1:8090',
- torrent_cache:true,
- cache_ttl:24
 };
 
-function loadSettings(){
- return Object.assign({},DEFAULT_SETTINGS,
-  Lampa.Storage.get(SETTINGS_KEY,{}));
-}
-function saveSettings(s){Lampa.Storage.set(SETTINGS_KEY,s);}
 
-/* ======================================================
- * UA FILTERS
- * ====================================================== */
+/*
+#########################################################
+BUTTON ENGINE
+#########################################################
+*/
 
-const UA_KEYS=[
- 'ua','ukr','ukrain','україн',
- 'eneida','ashdi','uakino',
- 'ledoyen','hurtom','toloka'
-];
-const RU_FALLBACK=['lostfilm','newstudio'];
+UA_CINEMA.buttonObserver = null;
 
-function norm(v){return String(v||'').toLowerCase();}
-function isUA(t){
- t=norm(t);
- if(t.includes('sub'))return false;
- return UA_KEYS.some(k=>t.includes(k));
-}
-function isRU(t){
- return RU_FALLBACK.some(k=>norm(t).includes(k));
-}
-function detectQuality(t){
- t=t.toLowerCase();
- if(t.includes('2160')||t.includes('4k'))return '2160p';
- if(t.includes('1080'))return '1080p';
- if(t.includes('720'))return '720p';
- if(t.includes('480'))return '480p';
- return 'unknown';
-}
 
-/* ======================================================
- * FILMIX PROVIDER (ONLINE)
- * ====================================================== */
+UA_CINEMA.initButtonObserver = function(){
 
-const FILMIX_ENDPOINTS=[
- 'https://filmix.biz/api/player',
- 'https://filmix.pro/api/player',
- 'https://filmix.site/api/player'
-];
+    if(UA_CINEMA.buttonObserver) return;
 
-function Filmix(){
- this.net=new Lampa.Reguest();
- this.cache={};
-}
+    UA_CINEMA.buttonObserver = new MutationObserver(function(){
 
-Filmix.prototype.search=function(card,cb){
- const id=cid(card);
- if(!id)return cb(null);
- if(this.cache[id])return cb(this.cache[id]);
+        let container = document.querySelector('.full-start-new__buttons');
 
- const eps=FILMIX_ENDPOINTS.slice();
- const tryNext=()=>{
-  if(!eps.length)return cb(null);
-  this.net.silent(eps.shift(),
-   j=>{
-    if(j&&j.player&&j.player.translations){
-     const data=this.parse(j,card);
-     if(data){this.cache[id]=data;cb(data);}
-     else tryNext();
-    } else tryNext();
-   },
-   tryNext,
-   {method:'POST',timeout:5000,data:{query:id}}
-  );
- };
- tryNext();
-};
+        if(!container) return;
 
-Filmix.prototype.parse=function(j,card){
- const ua=[],ru=[];
- j.player.translations.forEach(t=>{
-  if(isUA(t.title))ua.push(t);
-  else if(isRU(t.title))ru.push(t);
- });
- const use=ua.length?ua:ru.slice(0,2);
- if(!use.length)return null;
+        if(container.querySelector('.ua-cinema-btn')) return;
 
- const matrix={},cover={};
- use.forEach(t=>{
-  cover[t.title]=0;
-  t.playlist.forEach(s=>{
-   s.episodes.forEach(e=>{
-    matrix[s.season]??={};
-    matrix[s.season][e.episode]??=[];
-    matrix[s.season][e.episode].push({
-     tr:t.title, url:e.file
+        UA_CINEMA.createButton(container);
+
     });
-    cover[t.title]++;
-   });
-  });
- });
- const priority=Object.entries(cover)
-  .sort((a,b)=>b[1]-a[1])[0][0];
- return {card,title:card.title,matrix,priority};
+
+    UA_CINEMA.buttonObserver.observe(document.body, {
+
+        childList: true,
+        subtree: true
+
+    });
+
 };
 
-/* ======================================================
- * UA ONLINE COMPONENT
- * ====================================================== */
 
-function UAOnline(o){
- this.card=o.card;
- this.start=o.start_from||null;
- this.html=$('<div></div>');
- this.provider=new Filmix();
+UA_CINEMA.createButton = function(container){
+
+    UA_CINEMA.log('create button');
+
+    let btn = document.createElement('div');
+
+    btn.className =
+        'full-start__button selector ua-cinema-btn';
+
+    btn.innerHTML = '🇺🇦 Дивись UA';
+
+    btn.onclick = function(){
+
+        UA_CINEMA.open();
+
+    };
+
+    container.prepend(btn);
+
+};
+
+
+/*
+#########################################################
+OPEN HANDLER (EMPTY — BLOCK 2 WILL IMPLEMENT)
+#########################################################
+*/
+
+UA_CINEMA.open = function(){
+
+    let card = UA_CINEMA.getCardData();
+
+    if(!card) return;
+
+    UA_CINEMA.log('open UA modal', card);
+
+};
+
+
+/*
+#########################################################
+PLUGIN INIT
+#########################################################
+*/
+
+UA_CINEMA.init = function(){
+
+    UA_CINEMA.log('init plugin v'+UA_CINEMA.VERSION);
+
+    UA_CINEMA.initButtonObserver();
+
+};
+
+
+/*
+#########################################################
+START SAFE INIT
+#########################################################
+*/
+
+if(window.Lampa){
+    UA_CINEMA.init();
+}
+else{
+    window.addEventListener('lampa', function(){
+        UA_CINEMA.init();
+    });
 }
 
-UAOnline.prototype.create=function(){
- Lampa.Loading.show();
- this.provider.search(this.card,d=>{
-  Lampa.Loading.hide();
-  if(!d)return this.empty();
-  this.item=d;
-  this.renderSeasons();
-  if(this.start)
-   this.playEpisode(d,this.start.season,this.start.episode);
- });
- return this.html;
-};
-
-UAOnline.prototype.renderSeasons=function(){
- const w=$('<div class="online-list"></div>');
- Object.keys(this.item.matrix).forEach(s=>{
-  const el=$(`<div class="online-list__item selector">
-   <div class="online-list__title">Сезон ${s}</div>
-  </div>`);
-  el.on('hover:enter',()=>this.renderEpisodes(s));
-  w.append(el);
- });
- this.html.html(w);
- Lampa.Controller.collectionSet(w);
- Lampa.Controller.make(w);
-};
-
-UAOnline.prototype.renderEpisodes=function(season){
- const w=$('<div class="online-list"></div>');
- const p=loadProg(this.card);
- Object.keys(this.item.matrix[season]).forEach(e=>{
-  const vars=this.item.matrix[season][e];
-  const sv=loadVoice(this.card);
-  const pref=vars.find(v=>v.tr===sv)||
-   vars.find(v=>v.tr===this.item.priority)||vars[0];
-  const watched=p&&season==p.season&&e<=p.episode;
-  const el=$(`<div class="online-list__item selector${watched?' watched':''}">
-   <div class="online-list__title">Серія ${e}</div>
-   <div class="online-list__quality">${pref.tr}</div>
-  </div>`);
-  el.on('hover:enter',()=>this.playEpisode(this.item,season,e));
-  w.append(el);
- });
- this.html.html(w);
- Lampa.Controller.collectionSet(w);
- Lampa.Controller.make(w);
-};
-
-UAOnline.prototype.playEpisode=function(item,s,e){
- const vars=item.matrix[s][e];
- const sv=loadVoice(this.card);
- const v=vars.find(x=>x.tr===sv)||vars[0];
- saveVoice(this.card,v.tr);
- const r=loadTime(this.card,s,e);
-
- Lampa.Player.play({
-  url:v.url,
-  title:`${item.title} — С${s}Е${e}`,
-  time:r&&r.time>30?r.time:0,
-  ontime:t=>saveTime(this.card,s,e,t),
-  onpause:t=>saveTime(this.card,s,e,t),
-  onended:()=>{
-   saveProg(this.card,s,e);
-   this.next(item,s,e);
-  }
- });
-};
-
-UAOnline.prototype.next=function(item,s,e){
- const eps=Object.keys(item.matrix[s]).map(Number);
- const i=eps.indexOf(+e);
- if(i<eps.length-1)
-  return this.playEpisode(item,s,eps[i+1]);
- const ss=Object.keys(item.matrix).map(Number);
- const si=ss.indexOf(+s);
- if(si<ss.length-1){
-  const ns=ss[si+1];
-  const ne=Object.keys(item.matrix[ns])[0];
-  this.playEpisode(item,ns,ne);
- }
-};
-
-UAOnline.prototype.empty=function(){
- this.html.html('<div class="empty"><h3>Немає української озвучки</h3></div>');
-};
-
-Lampa.Component.add('ua_online',UAOnline);
-
-/* ======================================================
- * TORRENT SEARCH ENGINE
- * ====================================================== */
-
-function TorrentSearch(){
- this.net=new Lampa.Reguest();
-}
-
-TorrentSearch.prototype.search=function(card,quality,cb){
- const q=encodeURIComponent(`${card.title} ${card.year||''} ukr`);
- this.net.silent(
-  `https://apibay.org/q.php?q=${q}&cat=0`,
-  j=>{
-   if(!Array.isArray(j))return cb([]);
-   const r=j.map(t=>({
-    title:t.name,
-    magnet:`magnet:?xt=urn:btih:${t.info_hash}`,
-    seeders:+t.seeders||0,
-    quality:detectQuality(t.name),
-    ua:isUA(t.name)
-   }))
-   .filter(t=>t.ua)
-   .filter(t=>quality==='auto'||t.quality===quality)
-   .sort((a,b)=>b.seeders-a.seeders);
-   cb(r);
-  },
-  ()=>cb([])
- );
-};
-
-/* ======================================================
- * UA TORRENT COMPONENT
- * ====================================================== */
-
-function UATorrent(o){
- this.card=o.card;
- this.html=$('<div></div>');
- this.settings=loadSettings();
-}
-
-UATorrent.prototype.create=function(){
- this.checkServer(ok=>{
-  if(!ok)return this.help();
-  this.pickQuality();
- });
- return this.html;
-};
-
-UATorrent.prototype.checkServer=function(cb){
- const net=new Lampa.Reguest();
- net.silent(
-  this.settings.torrserver+'/echo',
-  ()=>cb(true),
-  ()=>cb(false),
-  {timeout:2000}
- );
-};
-
-UATorrent.prototype.help=function(){
- Lampa.Modal.open({
-  title:'UA Torrent Online',
-  html:`Для перегляду торрентів потрібен TorrServer<br>
-  <a href="https://github.com/YouROK/TorrServer">Завантажити</a>`
- });
-};
-
-UATorrent.prototype.pickQuality=function(){
- const w=$('<div class="online-list"></div>');
- ['auto','720p','1080p','2160p'].forEach(q=>{
-  const el=$(`<div class="online-list__item selector">
-   <div class="online-list__title">Якість ${q}</div>
-  </div>`);
-  el.on('hover:enter',()=>this.search(q));
-  w.append(el);
- });
- this.html.html(w);
- Lampa.Controller.collectionSet(w);
- Lampa.Controller.make(w);
-};
-
-UATorrent.prototype.search=function(q){
- const eng=new TorrentSearch();
- Lampa.Activity.loader(true);
- eng.search(this.card,q,res=>{
-  Lampa.Activity.loader(false);
-  if(!res.length)return this.empty();
-  const w=$('<div class="online-list"></div>');
-  res.forEach(t=>{
-   const el=$(`<div class="online-list__item selector">
-    <div class="online-list__title">${t.title}</div>
-    <div class="online-list__quality">
-     🇺🇦 🎞️ ${t.quality} 🌱 ${t.seeders}
-    </div>
-   </div>`);
-   el.on('hover:enter',()=>this.openTorrent(t));
-   w.append(el);
-  });
-  this.html.html(w);
-  Lampa.Controller.collectionSet(w);
-  Lampa.Controller.make(w);
- });
-};
-
-UATorrent.prototype.openTorrent=function(t){
- const cached=this.settings.torrent_cache?
-  loadTorrentCache(this.card,this.settings.cache_ttl*3600000):null;
- if(cached)return this.handleFiles(cached,t);
- const net=new Lampa.Reguest();
- Lampa.Activity.loader(true);
- net.silent(
-  this.settings.torrserver+'/stream/files?link='+encodeURIComponent(t.magnet),
-  f=>{
-   Lampa.Activity.loader(false);
-   if(this.settings.torrent_cache)saveTorrentCache(this.card,f);
-   this.handleFiles(f,t);
-  },
-  ()=>{Lampa.Activity.loader(false);this.empty();}
- );
-};
-
-UATorrent.prototype.handleFiles=function(files,t){
- const matrix={};
- files.forEach(f=>{
-  const m=f.name.match(/S(\d+)[^\d]?E(\d+)/i);
-  if(!m)return;
-  const s=+m[1],e=+m[2];
-  matrix[s]??={};
-  matrix[s][e]??={files:[]};
-  matrix[s][e].files.push(f);
- });
- if(!Object.keys(matrix).length)
-  return this.play(t.magnet,t.title);
- this.renderSeasons(matrix,t);
-};
-
-UATorrent.prototype.renderSeasons=function(matrix,t){
- const w=$('<div class="online-list"></div>');
- Object.keys(matrix).forEach(s=>{
-  const el=$(`<div class="online-list__item selector">
-   <div class="online-list__title">Сезон ${s}</div>
-  </div>`);
-  el.on('hover:enter',()=>this.renderEpisodes(matrix,s,t));
-  w.append(el);
- });
- this.html.html(w);
- Lampa.Controller.collectionSet(w);
- Lampa.Controller.make(w);
-};
-
-UATorrent.prototype.renderEpisodes=function(matrix,s,t){
- const w=$('<div class="online-list"></div>');
- const p=loadProg(this.card);
- Object.keys(matrix[s]).forEach(e=>{
-  const watched=p&&s==p.season&&e<=p.episode;
-  const el=$(`<div class="online-list__item selector${watched?' watched':''}">
-   <div class="online-list__title">Серія ${e}</div>
-  </div>`);
-  el.on('hover:enter',()=>this.playEpisode(matrix,s,e,t));
-  w.append(el);
- });
- this.html.html(w);
- Lampa.Controller.collectionSet(w);
- Lampa.Controller.make(w);
-};
-
-UATorrent.prototype.playEpisode=function(matrix,s,e,t){
- const files=matrix[s][e].files;
- const pref=loadTorrentFile(this.card);
- let f=files.find(x=>x.index===pref)||files[0];
- saveTorrentFile(this.card,f.index);
- const r=loadTime(this.card,s,e);
-
- Lampa.Player.play({
-  url:this.settings.torrserver+
-   '/stream?link='+encodeURIComponent(t.magnet)+'&index='+f.index,
-  title:`${t.title} — С${s}Е${e}`,
-  time:r&&r.time>30?r.time:0,
-  ontime:x=>saveTime(this.card,s,e,x),
-  onpause:x=>saveTime(this.card,s,e,x),
-  onended:()=>{
-   saveProg(this.card,s,e);
-   if(this.settings.autoplay)this.next(matrix,s,e,t);
-  }
- });
-};
-
-UATorrent.prototype.next=function(matrix,s,e,t){
- const eps=Object.keys(matrix[s]).map(Number);
- const i=eps.indexOf(+e);
- if(i<eps.length-1)
-  return this.playEpisode(matrix,s,eps[i+1],t);
- const ss=Object.keys(matrix).map(Number);
- const si=ss.indexOf(+s);
- if(si<ss.length-1){
-  const ns=ss[si+1];
-  const ne=Object.keys(matrix[ns])[0];
-  this.playEpisode(matrix,ns,ne,t);
- }
-};
-
-UATorrent.prototype.play=function(m,title){
- Lampa.Player.play({
-  url:this.settings.torrserver+
-   '/stream?link='+encodeURIComponent(m),
-  title:title
- });
-};
-
-UATorrent.prototype.empty=function(){
- this.html.html('<div class="empty"><h3>Нічого не знайдено</h3></div>');
-};
-
-Lampa.Component.add('ua_torrent',UATorrent);
-
-/* ======================================================
- * SETTINGS COMPONENT
- * ====================================================== */
-
-function UASettings(){
- this.s=loadSettings();
- this.html=$('<div></div>');
-}
-
-UASettings.prototype.create=function(){
- const w=$('<div class="online-list"></div>');
- const add=(t,v,cb)=>{
-  const el=$(`<div class="online-list__item selector">
-   <div class="online-list__title">${t}</div>
-   <div class="online-list__quality">${v||''}</div>
-  </div>`);
-  el.on('hover:enter',cb);
-  w.append(el);
- };
-
- add('Якість за замовчуванням',this.s.quality,()=>{
-  this.pick(['auto','720p','1080p','2160p'],v=>{
-   this.s.quality=v;saveSettings(this.s);this.create();
-  });
- });
-
- add('Автоперехід',this.s.autoplay?'ON':'OFF',()=>{
-  this.s.autoplay=!this.s.autoplay;saveSettings(this.s);this.create();
- });
-
- add('Очистити кеш торентів','',()=>{
-  clearAllTorrentCache();
-  Lampa.Noty.show('Кеш очищено');
- });
-
- this.html.html(w);
- Lampa.Controller.collectionSet(w);
- Lampa.Controller.make(w);
- return this.html;
-};
-
-UASettings.prototype.pick=function(list,cb){
- const w=$('<div></div>');
- list.forEach(v=>{
-  const el=$(`<div class="online-list__item selector">${v}</div>`);
-  el.on('hover:enter',()=>{Lampa.Modal.close();cb(v);});
-  w.append(el);
- });
- Lampa.Modal.open({title:'Оберіть',html:w});
-};
-
-Lampa.Component.add('ua_settings',UASettings);
-
-/* ======================================================
- * BUTTONS
- * ====================================================== */
-
-setInterval(()=>{
- const c=$('.full-start-new__buttons,.full-start__buttons');
- if(!c.length||$('.ua-cinema-btn').length)return;
-
- c.prepend(`
-  <div class="full-start__button selector ua-cinema-btn">🇺🇦 UA Online</div>
-  <div class="full-start__button selector ua-torrent-btn">🇺🇦 Torrent Online</div>
-  <div class="full-start__button selector ua-settings-btn">⚙ UA</div>
- `);
-
- $('.ua-cinema-btn').on('click',()=>{
-  const a=Lampa.Activity.active();
-  if(a&&a.card)
-   Lampa.Activity.push({title:'UA Online',component:'ua_online',card:a.card});
- });
-
- $('.ua-torrent-btn').on('click',()=>{
-  const a=Lampa.Activity.active();
-  if(a&&a.card)
-   Lampa.Activity.push({title:'Torrent Online',component:'ua_torrent',card:a.card});
- });
-
- $('.ua-settings-btn').on('click',()=>{
-  Lampa.Activity.push({title:'UA Cinema',component:'ua_settings'});
- });
-},1000);
 
 })();
+
+
+/*
+#########################################################
+Block 2
+#########################################################
+*/
+
+(function(){
+
+'use strict';
+
+if(!window.UA_CINEMA) return;
+
+const UA_CINEMA = window.UA_CINEMA;
+
+
+/*
+#########################################################
+MODAL ENGINE
+#########################################################
+*/
+
+
+UA_CINEMA.modal = null;
+UA_CINEMA.modalContent = null;
+UA_CINEMA.modalLoader = null;
+
+
+/*
+#########################################################
+OPEN MODAL
+#########################################################
+*/
+
+UA_CINEMA.open = function(){
+
+    let card = UA_CINEMA.getCardData();
+
+    if(!card) return;
+
+    UA_CINEMA.log('OPEN MODAL', card);
+
+    UA_CINEMA.createModal(card);
+
+    UA_CINEMA.showLoader();
+
+    // BLOCK 3 буде тут запускати search engine
+
+};
+
+
+/*
+#########################################################
+CREATE MODAL
+#########################################################
+*/
+
+UA_CINEMA.createModal = function(card){
+
+    UA_CINEMA.destroyModal();
+
+    let modal = document.createElement('div');
+
+    modal.className = 'ua-cinema-modal';
+
+    modal.innerHTML = `
+
+    <div class="ua-cinema-modal__bg"></div>
+
+    <div class="ua-cinema-modal__overlay"></div>
+
+    <div class="ua-cinema-modal__body">
+
+        <div class="ua-cinema-modal__header">
+
+            <div class="ua-cinema-modal__title">
+                🇺🇦 Дивись українською
+            </div>
+
+            <div class="ua-cinema-modal__close">
+                ✕
+            </div>
+
+        </div>
+
+        <div class="ua-cinema-modal__content">
+
+        </div>
+
+    </div>
+
+    `;
+
+    document.body.appendChild(modal);
+
+    UA_CINEMA.modal = modal;
+
+    UA_CINEMA.modalContent =
+        modal.querySelector('.ua-cinema-modal__content');
+
+
+    modal.querySelector('.ua-cinema-modal__close')
+        .onclick = UA_CINEMA.destroyModal;
+
+
+    UA_CINEMA.setBackground(card);
+
+    UA_CINEMA.injectStyles();
+
+};
+
+
+/*
+#########################################################
+DESTROY MODAL
+#########################################################
+*/
+
+UA_CINEMA.destroyModal = function(){
+
+    if(!UA_CINEMA.modal) return;
+
+    UA_CINEMA.modal.remove();
+
+    UA_CINEMA.modal = null;
+
+};
+
+
+/*
+#########################################################
+BACKGROUND
+#########################################################
+*/
+
+UA_CINEMA.setBackground = function(card){
+
+    let bg = '';
+
+    if(card.backdrop)
+        bg = card.backdrop;
+    else if(card.poster)
+        bg = card.poster;
+
+    let el = UA_CINEMA.modal.querySelector('.ua-cinema-modal__bg');
+
+    el.style.backgroundImage =
+        'url('+bg+')';
+
+};
+
+
+/*
+#########################################################
+LOADER
+#########################################################
+*/
+
+UA_CINEMA.showLoader = function(){
+
+    if(!UA_CINEMA.modalContent) return;
+
+    UA_CINEMA.modalContent.innerHTML = `
+
+        <div class="ua-cinema-loader">
+
+            <div class="ua-cinema-loader__spinner"></div>
+
+            <div class="ua-cinema-loader__text">
+                Пошук українських озвучок...
+            </div>
+
+        </div>
+
+    `;
+
+};
+
+
+UA_CINEMA.hideLoader = function(){
+
+    if(!UA_CINEMA.modalContent) return;
+
+    UA_CINEMA.modalContent.innerHTML = '';
+
+};
+
+
+/*
+#########################################################
+STYLES
+#########################################################
+*/
+
+UA_CINEMA.stylesInjected = false;
+
+UA_CINEMA.injectStyles = function(){
+
+    if(UA_CINEMA.stylesInjected) return;
+
+    UA_CINEMA.stylesInjected = true;
+
+    let style = document.createElement('style');
+
+    style.innerHTML = `
+
+
+.ua-cinema-modal {
+
+    position: fixed;
+    z-index: 999999;
+
+    left:0;
+    top:0;
+    right:0;
+    bottom:0;
+
+}
+
+
+.ua-cinema-modal__bg {
+
+    position:absolute;
+
+    left:0;
+    top:0;
+    right:0;
+    bottom:0;
+
+    background-size:cover;
+    background-position:center;
+
+    filter: blur(20px);
+    opacity:0.3;
+
+}
+
+
+.ua-cinema-modal__overlay {
+
+    position:absolute;
+
+    left:0;
+    top:0;
+    right:0;
+    bottom:0;
+
+    background: linear-gradient(
+        to bottom,
+        rgba(0,0,0,0.9),
+        rgba(0,0,0,0.95)
+    );
+
+}
+
+
+.ua-cinema-modal__body {
+
+    position:absolute;
+
+    left:0;
+    top:0;
+    right:0;
+    bottom:0;
+
+    padding:60px;
+
+    overflow:auto;
+
+}
+
+
+.ua-cinema-modal__header {
+
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+
+}
+
+
+.ua-cinema-modal__title {
+
+    font-size:32px;
+    font-weight:600;
+
+}
+
+
+.ua-cinema-modal__close {
+
+    font-size:28px;
+    cursor:pointer;
+
+}
+
+
+.ua-cinema-modal__content {
+
+    margin-top:40px;
+
+}
+
+
+.ua-cinema-loader {
+
+    text-align:center;
+    margin-top:100px;
+
+}
+
+
+.ua-cinema-loader__spinner {
+
+    width:60px;
+    height:60px;
+
+    border:5px solid rgba(255,255,255,0.2);
+    border-top:5px solid #ffd700;
+
+    border-radius:50%;
+
+    animation: ua-cinema-spin 1s linear infinite;
+
+    margin:0 auto;
+
+}
+
+
+.ua-cinema-loader__text {
+
+    margin-top:20px;
+    font-size:20px;
+
+}
+
+
+@keyframes ua-cinema-spin {
+
+    from { transform:rotate(0deg); }
+    to { transform:rotate(360deg); }
+
+}
+
+
+    `;
+
+    document.head.appendChild(style);
+
+};
+
+
+})();
+
+
+/*
+#########################################################
+Block 3
+#########################################################
+*/
+
+(function(){
+
+'use strict';
+
+if(!window.UA_CINEMA) return;
+
+const UA_CINEMA = window.UA_CINEMA;
+
+
+/*
+#########################################################
+SEARCH ENGINE CORE
+#########################################################
+*/
+
+
+UA_CINEMA.search = {};
+
+UA_CINEMA.search.results = [];
+
+UA_CINEMA.search.running = false;
+
+
+/*
+#########################################################
+GET ALL POSSIBLE TITLES
+#########################################################
+*/
+
+UA_CINEMA.search.getTitles = function(card){
+
+    let titles = [];
+
+    if(card.title)
+        titles.push(card.title);
+
+    if(card.name)
+        titles.push(card.name);
+
+    if(card.original_title)
+        titles.push(card.original_title);
+
+    if(card.original_name)
+        titles.push(card.original_name);
+
+    // remove duplicates
+
+    titles = titles.filter(function(v,i,a){
+        return a.indexOf(v) === i;
+    });
+
+    UA_CINEMA.log('TITLES', titles);
+
+    return titles;
+
+};
+
+
+/*
+#########################################################
+START SEARCH
+#########################################################
+*/
+
+UA_CINEMA.search.start = async function(card){
+
+    if(UA_CINEMA.search.running)
+        return;
+
+    UA_CINEMA.search.running = true;
+
+    UA_CINEMA.search.results = [];
+
+    UA_CINEMA.log('START SEARCH', card);
+
+
+    let titles = UA_CINEMA.search.getTitles(card);
+
+    let year = card.year;
+
+
+    for(let site of UA_CINEMA.SITES_PRIORITY){
+
+        try{
+
+            await UA_CINEMA.search.searchSite(
+                site,
+                titles,
+                year
+            );
+
+        }
+        catch(e){
+
+            UA_CINEMA.log('SEARCH ERROR', site, e);
+
+        }
+
+    }
+
+
+    UA_CINEMA.search.running = false;
+
+    UA_CINEMA.log('SEARCH DONE', UA_CINEMA.search.results);
+
+    UA_CINEMA.renderResults();
+
+};
+
+
+/*
+#########################################################
+SEARCH SINGLE SITE
+#########################################################
+*/
+
+UA_CINEMA.search.searchSite =
+async function(site, titles, year){
+
+    if(!UA_CINEMA.SITES[site]){
+        UA_CINEMA.log('SITE NOT IMPLEMENTED', site);
+        return;
+    }
+
+    let engine = UA_CINEMA.SITES[site];
+
+    for(let title of titles){
+
+        let results =
+            await engine.search(title, year);
+
+        if(results && results.length){
+
+            for(let r of results){
+
+                UA_CINEMA.search.results.push({
+
+                    site: site,
+                    title: r.title,
+                    year: r.year,
+                    url: r.url,
+                    data: r
+
+                });
+
+            }
+
+        }
+
+    }
+
+};
+
+
+/*
+#########################################################
+RENDER RESULTS
+#########################################################
+*/
+
+UA_CINEMA.renderResults = function(){
+
+    UA_CINEMA.hideLoader();
+
+    let container =
+        UA_CINEMA.modalContent;
+
+    if(!container) return;
+
+
+    if(!UA_CINEMA.search.results.length){
+
+        container.innerHTML = `
+
+            <div class="ua-cinema-empty">
+
+                Не знайдено українських озвучок
+
+            </div>
+
+        `;
+
+        return;
+
+    }
+
+
+    let html = '';
+
+    for(let item of UA_CINEMA.search.results){
+
+        html += `
+
+            <div class="ua-cinema-item"
+                data-site="${item.site}"
+                data-url="${item.url}">
+
+                <div class="ua-cinema-item__site">
+
+                    ${item.site.toUpperCase()}
+
+                </div>
+
+                <div class="ua-cinema-item__title">
+
+                    ${item.title}
+                    (${item.year})
+
+                </div>
+
+            </div>
+
+        `;
+
+    }
+
+
+    container.innerHTML = html;
+
+
+    container.querySelectorAll('.ua-cinema-item')
+    .forEach(function(el){
+
+        el.onclick = function(){
+
+            let site = el.dataset.site;
+            let url = el.dataset.url;
+
+            UA_CINEMA.openSource(site, url);
+
+        };
+
+    });
+
+};
+
+
+/*
+#########################################################
+OPEN SOURCE (BLOCK 5 WILL IMPLEMENT PLAYER)
+#########################################################
+*/
+
+UA_CINEMA.openSource =
+async function(site, url){
+
+    UA_CINEMA.log('OPEN SOURCE', site, url);
+
+};
+
+
+})();
+
+
+/*
+#########################################################
+Block 4
+#########################################################
+*/
+
+(function(){
+
+'use strict';
+
+if(!window.UA_CINEMA) return;
+
+const UA_CINEMA = window.UA_CINEMA;
+
+
+/*
+#########################################################
+UASERIAL.TV SOURCE ENGINE
+#########################################################
+*/
+
+
+UA_CINEMA.SITES.uaserial = {};
+
+
+/*
+#########################################################
+SEARCH
+#########################################################
+*/
+
+UA_CINEMA.SITES.uaserial.search =
+async function(query, year){
+
+    UA_CINEMA.log('uaserial search', query, year);
+
+    let url =
+        'https://uaserial.tv/search?query=' +
+        encodeURIComponent(query);
+
+    let response =
+        await fetch(url);
+
+    let html =
+        await response.text();
+
+    let doc =
+        new DOMParser()
+        .parseFromString(html, 'text/html');
+
+
+    let items =
+        doc.querySelectorAll('a[href*="/movie-"], a[href*="/serial-"]');
+
+    let results = [];
+
+
+    items.forEach(function(el){
+
+        let href =
+            el.getAttribute('href');
+
+        if(!href) return;
+
+        let title =
+            el.textContent.trim();
+
+        let itemYear =
+            extractYear(title);
+
+        if(year && itemYear && year !== itemYear)
+            return;
+
+        results.push({
+
+            title: title,
+            year: itemYear,
+            url: href
+
+        });
+
+    });
+
+
+    UA_CINEMA.log('uaserial results', results);
+
+    return results;
+
+};
+
+
+/*
+#########################################################
+EXTRACT YEAR
+#########################################################
+*/
+
+function extractYear(title){
+
+    let match =
+        title.match(/\b(19|20)\d{2}\b/);
+
+    if(match)
+        return parseInt(match[0]);
+
+    return 0;
+
+}
+
+
+})();
+
+/*
+#########################################################
+Block 5
+#########################################################
+*/
+
+(function(){
+
+'use strict';
+
+if(!window.UA_CINEMA) return;
+
+const UA_CINEMA = window.UA_CINEMA;
+
+
+/*
+#########################################################
+PLAYER ENGINE
+#########################################################
+*/
+
+
+UA_CINEMA.openSource =
+async function(site, url){
+
+    UA_CINEMA.log('OPEN SOURCE', site, url);
+
+    try{
+
+        UA_CINEMA.showLoader();
+
+        let stream =
+            await UA_CINEMA.extractStream(site, url);
+
+        UA_CINEMA.hideLoader();
+
+        if(!stream){
+
+            Lampa.Noty.show('Не вдалося отримати відео');
+
+            return;
+
+        }
+
+        UA_CINEMA.play(stream, site, url);
+
+    }
+    catch(e){
+
+        console.error(e);
+
+        Lampa.Noty.show('Помилка відтворення');
+
+    }
+
+};
+
+
+
+/*
+#########################################################
+EXTRACT STREAM ROUTER
+#########################################################
+*/
+
+UA_CINEMA.extractStream =
+async function(site, url){
+
+    if(site === 'uaserial')
+        return await extractUASerialStream(url);
+
+    return null;
+
+};
+
+
+
+/*
+#########################################################
+UASERIAL STREAM EXTRACTOR
+#########################################################
+*/
+
+async function extractUASerialStream(url){
+
+    UA_CINEMA.log('extract uaserial stream', url);
+
+    let response =
+        await fetch(url);
+
+    let html =
+        await response.text();
+
+    let doc =
+        new DOMParser()
+        .parseFromString(html, 'text/html');
+
+
+    let iframe =
+        doc.querySelector('iframe');
+
+    if(!iframe)
+        return null;
+
+
+    let iframeSrc =
+        iframe.getAttribute('src');
+
+    if(!iframeSrc)
+        return null;
+
+
+    if(iframeSrc.startsWith('//'))
+        iframeSrc = 'https:' + iframeSrc;
+
+
+    UA_CINEMA.log('iframe', iframeSrc);
+
+
+    // open iframe page
+
+    let iframeResp =
+        await fetch(iframeSrc);
+
+    let iframeHtml =
+        await iframeResp.text();
+
+
+    // extract m3u8
+
+    let m3u8 =
+        extractM3U8(iframeHtml);
+
+    UA_CINEMA.log('m3u8', m3u8);
+
+    return {
+
+        url: m3u8,
+        type: 'hls'
+
+    };
+
+}
+
+
+
+/*
+#########################################################
+EXTRACT M3U8 FROM HTML
+#########################################################
+*/
+
+function extractM3U8(html){
+
+    let match =
+        html.match(/https?:\/\/[^"]+\.m3u8[^"]*/);
+
+    if(match)
+        return match[0];
+
+    return null;
+
+}
+
+
+
+/*
+#########################################################
+PLAY IN LAMPA PLAYER
+#########################################################
+*/
+
+UA_CINEMA.play =
+function(stream, site, url){
+
+    UA_CINEMA.log('PLAY', stream);
+
+
+    let card =
+        UA_CINEMA.getCardData();
+
+
+    let playerData = {
+
+        title:
+            card.title ||
+            card.name ||
+            card.original_title,
+
+        url:
+            stream.url,
+
+        type:
+            stream.type || 'hls',
+
+        subtitles: [],
+
+    };
+
+
+    Lampa.Player.play(playerData);
+
+
+    UA_CINEMA.saveProgress(site, url);
+
+};
+
+
+
+/*
+#########################################################
+SAVE LAST SOURCE
+#########################################################
+*/
+
+UA_CINEMA.saveProgress =
+function(site, url){
+
+    let card =
+        UA_CINEMA.getCardData();
+
+    if(!card) return;
+
+    UA_CINEMA.storage.set(card.id, {
+
+        site: site,
+        url: url,
+        time: Date.now()
+
+    });
+
+};
+
+
+
+})();
+
+/*
+#########################################################
+Block 6
+#########################################################
+*/
+
+(function(){
+
+'use strict';
+
+if(!window.UA_CINEMA) return;
+
+const UA_CINEMA = window.UA_CINEMA;
+
+
+/*
+#########################################################
+RESUME ENGINE
+#########################################################
+*/
+
+
+UA_CINEMA.resume = {};
+
+UA_CINEMA.resume.current = null;
+
+
+/*
+#########################################################
+GET SAVED PROGRESS
+#########################################################
+*/
+
+UA_CINEMA.resume.get =
+function(){
+
+    let card =
+        UA_CINEMA.getCardData();
+
+    if(!card) return null;
+
+    return UA_CINEMA.storage.get(card.id);
+
+};
+
+
+
+/*
+#########################################################
+SHOW CONTINUE BUTTON IN MODAL
+#########################################################
+*/
+
+UA_CINEMA.resume.render =
+function(){
+
+    let saved =
+        UA_CINEMA.resume.get();
+
+    if(!saved) return;
+
+    if(!UA_CINEMA.modalContent) return;
+
+
+    let html = `
+
+        <div class="ua-cinema-resume">
+
+            <div class="ua-cinema-resume__title">
+
+                ▶ Продовжити перегляд
+
+            </div>
+
+            <div class="ua-cinema-resume__site">
+
+                Джерело: ${saved.site}
+
+            </div>
+
+        </div>
+
+    `;
+
+
+    UA_CINEMA.modalContent.insertAdjacentHTML(
+        'afterbegin',
+        html
+    );
+
+
+    let el =
+        UA_CINEMA.modalContent.querySelector(
+            '.ua-cinema-resume'
+        );
+
+
+    el.onclick =
+    function(){
+
+        UA_CINEMA.resume.play(saved);
+
+    };
+
+};
+
+
+
+/*
+#########################################################
+PLAY SAVED STREAM
+#########################################################
+*/
+
+UA_CINEMA.resume.play =
+async function(saved){
+
+    UA_CINEMA.showLoader();
+
+    let stream = {
+
+        url: saved.stream,
+        type: 'hls'
+
+    };
+
+    UA_CINEMA.hideLoader();
+
+    UA_CINEMA.playWithResume(stream, saved);
+
+};
+
+
+
+/*
+#########################################################
+PLAY WITH RESUME TIME
+#########################################################
+*/
+
+UA_CINEMA.playWithResume =
+function(stream, saved){
+
+    let card =
+        UA_CINEMA.getCardData();
+
+    let playerData = {
+
+        title:
+            card.title ||
+            card.name,
+
+        url:
+            stream.url,
+
+        type:
+            'hls'
+
+    };
+
+
+    Lampa.Player.play(playerData);
+
+
+    // wait player ready
+
+    setTimeout(function(){
+
+        try{
+
+            if(saved.time){
+
+                Lampa.Player.seek(
+                    saved.time
+                );
+
+            }
+
+        }
+        catch(e){}
+
+    }, 1500);
+
+
+};
+
+
+
+/*
+#########################################################
+SAVE TIME AUTOMATICALLY
+#########################################################
+*/
+
+UA_CINEMA.resume.startTracking =
+function(streamUrl, site, sourceUrl){
+
+    let card =
+        UA_CINEMA.getCardData();
+
+    if(!card) return;
+
+    UA_CINEMA.resume.current = {
+
+        cardId: card.id,
+        site: site,
+        sourceUrl: sourceUrl,
+        stream: streamUrl
+
+    };
+
+
+    UA_CINEMA.resume.timer =
+        setInterval(function(){
+
+            try{
+
+                let time =
+                    Lampa.Player.video().currentTime;
+
+                UA_CINEMA.storage.set(
+
+                    card.id,
+
+                    {
+
+                        site: site,
+
+                        sourceUrl: sourceUrl,
+
+                        stream: streamUrl,
+
+                        time: time
+
+                    }
+
+                );
+
+            }
+            catch(e){}
+
+        }, 5000);
+
+};
+
+
+
+/*
+#########################################################
+HOOK INTO PLAYER
+#########################################################
+*/
+
+let originalPlay =
+    UA_CINEMA.play;
+
+
+UA_CINEMA.play =
+function(stream, site, sourceUrl){
+
+    originalPlay(stream, site, sourceUrl);
+
+    UA_CINEMA.resume.startTracking(
+        stream.url,
+        site,
+        sourceUrl
+    );
+
+};
+
+
+
+/*
+#########################################################
+HOOK MODAL RENDER
+#########################################################
+*/
+
+let originalRender =
+    UA_CINEMA.renderResults;
+
+
+UA_CINEMA.renderResults =
+function(){
+
+    originalRender();
+
+    UA_CINEMA.resume.render();
+
+};
+
+
+
+})();
+
+/*
+#########################################################
+Block 7
+#########################################################
+*/
+
+(function(){
+
+'use strict';
+
+if(!window.UA_CINEMA) return;
+
+const UA_CINEMA = window.UA_CINEMA;
+
+
+/*
+#########################################################
+SERIES ENGINE
+#########################################################
+*/
+
+
+UA_CINEMA.series = {};
+
+UA_CINEMA.series.current = null;
+
+
+/*
+#########################################################
+DETECT IF SERIES
+#########################################################
+*/
+
+UA_CINEMA.series.isSeries =
+function(){
+
+    let card =
+        UA_CINEMA.getCardData();
+
+    if(!card) return false;
+
+    if(card.card.media_type === 'tv')
+        return true;
+
+    if(card.card.name)
+        return true;
+
+    return false;
+
+};
+
+
+
+/*
+#########################################################
+LOAD SEASONS FROM TMDB
+#########################################################
+*/
+
+UA_CINEMA.series.load =
+async function(){
+
+    let card =
+        UA_CINEMA.getCardData();
+
+    if(!card) return;
+
+
+    let id =
+        card.card.id;
+
+    let seasons =
+        card.card.seasons;
+
+
+    if(!seasons){
+
+        seasons =
+            await loadSeasonsFromAPI(id);
+
+    }
+
+
+    UA_CINEMA.series.renderSeasons(seasons);
+
+};
+
+
+
+/*
+#########################################################
+LOAD SEASONS VIA TMDB API
+#########################################################
+*/
+
+async function loadSeasonsFromAPI(id){
+
+    return new Promise(function(resolve){
+
+        Lampa.TMDB.api(
+            'tv/' + id,
+            {},
+            function(data){
+
+                resolve(data.seasons || []);
+
+            },
+            function(){
+
+                resolve([]);
+
+            }
+        );
+
+    });
+
+}
+
+
+
+/*
+#########################################################
+RENDER SEASONS
+#########################################################
+*/
+
+UA_CINEMA.series.renderSeasons =
+function(seasons){
+
+    let container =
+        UA_CINEMA.modalContent;
+
+    if(!container) return;
+
+
+    let html =
+        '<div class="ua-cinema-seasons">';
+
+
+    seasons.forEach(function(season){
+
+        if(season.season_number === 0)
+            return;
+
+        html += `
+
+            <div class="ua-cinema-season"
+                data-season="${season.season_number}">
+
+                Сезон ${season.season_number}
+
+            </div>
+
+        `;
+
+    });
+
+
+    html += '</div>';
+
+    container.innerHTML = html;
+
+
+    container.querySelectorAll(
+        '.ua-cinema-season'
+    ).forEach(function(el){
+
+        el.onclick =
+        function(){
+
+            let season =
+                parseInt(el.dataset.season);
+
+            UA_CINEMA.series.openSeason(
+                season
+            );
+
+        };
+
+    });
+
+};
+
+
+
+/*
+#########################################################
+OPEN SEASON
+#########################################################
+*/
+
+UA_CINEMA.series.openSeason =
+async function(season){
+
+    let card =
+        UA_CINEMA.getCardData();
+
+    let id =
+        card.card.id;
+
+
+    let episodes =
+        await loadEpisodes(id, season);
+
+
+    UA_CINEMA.series.renderEpisodes(
+        season,
+        episodes
+    );
+
+};
+
+
+
+/*
+#########################################################
+LOAD EPISODES
+#########################################################
+*/
+
+async function loadEpisodes(id, season){
+
+    return new Promise(function(resolve){
+
+        Lampa.TMDB.api(
+
+            'tv/' + id + '/season/' + season,
+
+            {},
+
+            function(data){
+
+                resolve(data.episodes || []);
+
+            },
+
+            function(){
+
+                resolve([]);
+
+            }
+
+        );
+
+    });
+
+}
+
+
+
+/*
+#########################################################
+RENDER EPISODES
+#########################################################
+*/
+
+UA_CINEMA.series.renderEpisodes =
+function(season, episodes){
+
+    let container =
+        UA_CINEMA.modalContent;
+
+    if(!container) return;
+
+
+    let html =
+        '<div class="ua-cinema-episodes">';
+
+
+    episodes.forEach(function(ep){
+
+        html += `
+
+            <div class="ua-cinema-episode"
+                data-season="${season}"
+                data-episode="${ep.episode_number}">
+
+                Серія ${ep.episode_number}
+                — ${ep.name || ''}
+
+            </div>
+
+        `;
+
+    });
+
+
+    html += '</div>';
+
+    container.innerHTML = html;
+
+
+    container.querySelectorAll(
+        '.ua-cinema-episode'
+    ).forEach(function(el){
+
+        el.onclick =
+        function(){
+
+            let season =
+                parseInt(el.dataset.season);
+
+            let episode =
+                parseInt(el.dataset.episode);
+
+            UA_CINEMA.series.selectEpisode(
+                season,
+                episode
+            );
+
+        };
+
+    });
+
+};
+
+
+
+/*
+#########################################################
+SELECT EPISODE → START SEARCH
+#########################################################
+*/
+
+UA_CINEMA.series.selectEpisode =
+function(season, episode){
+
+    UA_CINEMA.series.current = {
+
+        season: season,
+        episode: episode
+
+    };
+
+
+    let card =
+        UA_CINEMA.getCardData();
+
+    UA_CINEMA.showLoader();
+
+    UA_CINEMA.search.start(card);
+
+};
+
+
+
+/*
+#########################################################
+HOOK MODAL OPEN
+#########################################################
+*/
+
+let originalOpen =
+    UA_CINEMA.open;
+
+
+UA_CINEMA.open =
+function(){
+
+    originalOpen();
+
+    if(
+        UA_CINEMA.series.isSeries()
+    ){
+
+        setTimeout(function(){
+
+            UA_CINEMA.series.load();
+
+        }, 300);
+
+    }
+
+};
+
+
+})();
+
+/*
+#########################################################
+Block 8
+#########################################################
+*/
+
+(function(){
+
+'use strict';
+
+if(!window.UA_CINEMA) return;
+
+const UA_CINEMA = window.UA_CINEMA;
+
+
+/*
+#########################################################
+HELPER: EXTRACT YEAR
+#########################################################
+*/
+
+function extractYear(text){
+
+    if(!text) return 0;
+
+    let match =
+        text.match(/\b(19|20)\d{2}\b/);
+
+    if(match)
+        return parseInt(match[0]);
+
+    return 0;
+
+}
+
+
+/*
+#########################################################
+UASERIALS.MY
+#########################################################
+*/
+
+UA_CINEMA.SITES.uaserials = {
+
+    search: async function(query, year){
+
+        let url =
+            'https://uaserials.my/index.php?do=search&subaction=search&story=' +
+            encodeURIComponent(query);
+
+        let resp =
+            await fetch(url);
+
+        let html =
+            await resp.text();
+
+        let doc =
+            new DOMParser()
+            .parseFromString(html,'text/html');
+
+        let links =
+            doc.querySelectorAll('a[href*=".html"]');
+
+        let results = [];
+
+        links.forEach(function(el){
+
+            let href =
+                el.href;
+
+            let title =
+                el.textContent.trim();
+
+            let y =
+                extractYear(title);
+
+            if(year && y && year !== y)
+                return;
+
+            results.push({
+
+                title: title,
+                year: y,
+                url: href
+
+            });
+
+        });
+
+        return results;
+
+    }
+
+};
+
+
+
+/*
+#########################################################
+UAKINO-BAY.NET
+#########################################################
+*/
+
+UA_CINEMA.SITES.uakino = {
+
+    search: async function(query, year){
+
+        let url =
+            'https://uakino-bay.net/search/' +
+            encodeURIComponent(query);
+
+        let resp =
+            await fetch(url);
+
+        let html =
+            await resp.text();
+
+        let doc =
+            new DOMParser()
+            .parseFromString(html,'text/html');
+
+        let links =
+            doc.querySelectorAll('a[href*=".html"]');
+
+        let results = [];
+
+        links.forEach(function(el){
+
+            let href =
+                el.href;
+
+            let title =
+                el.textContent.trim();
+
+            let y =
+                extractYear(title);
+
+            if(year && y && year !== y)
+                return;
+
+            results.push({
+
+                title: title,
+                year: y,
+                url: href
+
+            });
+
+        });
+
+        return results;
+
+    }
+
+};
+
+
+
+/*
+#########################################################
+UAFIX.NET
+#########################################################
+*/
+
+UA_CINEMA.SITES.uafix = {
+
+    search: async function(query, year){
+
+        let url =
+            'https://uafix.net/index.php?do=search&subaction=search&story=' +
+            encodeURIComponent(query);
+
+        let resp =
+            await fetch(url);
+
+        let html =
+            await resp.text();
+
+        let doc =
+            new DOMParser()
+            .parseFromString(html,'text/html');
+
+        let links =
+            doc.querySelectorAll('a[href*="/"]');
+
+        let results = [];
+
+        links.forEach(function(el){
+
+            let href =
+                el.href;
+
+            let title =
+                el.textContent.trim();
+
+            let y =
+                extractYear(title);
+
+            if(year && y && year !== y)
+                return;
+
+            results.push({
+
+                title: title,
+                year: y,
+                url: href
+
+            });
+
+        });
+
+        return results;
+
+    }
+
+};
+
+
+
+/*
+#########################################################
+EXTEND STREAM EXTRACTOR ROUTER
+#########################################################
+*/
+
+let originalExtract =
+    UA_CINEMA.extractStream;
+
+UA_CINEMA.extractStream =
+async function(site, url){
+
+    if(
+        site === 'uaserials' ||
+        site === 'uakino' ||
+        site === 'uafix'
+    ){
+
+        return await extractIframeStream(url);
+
+    }
+
+    return await originalExtract(site, url);
+
+};
+
+
+
+/*
+#########################################################
+GENERIC IFRAME STREAM EXTRACTOR
+#########################################################
+*/
+
+async function extractIframeStream(url){
+
+    let resp =
+        await fetch(url);
+
+    let html =
+        await resp.text();
+
+    let doc =
+        new DOMParser()
+        .parseFromString(html,'text/html');
+
+    let iframe =
+        doc.querySelector('iframe');
+
+    if(!iframe) return null;
+
+    let src =
+        iframe.src;
+
+    if(src.startsWith('//'))
+        src = 'https:' + src;
+
+    let iframeResp =
+        await fetch(src);
+
+    let iframeHtml =
+        await iframeResp.text();
+
+    let m3u8 =
+        iframeHtml.match(
+            /https?:\/\/[^"]+\.m3u8[^"]*/
+        );
+
+    if(!m3u8) return null;
+
+    return {
+
+        url: m3u8[0],
+        type: 'hls'
+
+    };
+
+}
+
+
+})();
+
+/*
+#########################################################
+Block 9
+#########################################################
+*/
+
+(function(){
+
+'use strict';
+
+if(!window.UA_CINEMA) return;
+
+const UA_CINEMA = window.UA_CINEMA;
+
+
+/*
+#########################################################
+HELPER YEAR EXTRACT
+#########################################################
+*/
+
+function extractYear(text){
+
+    if(!text) return 0;
+
+    let match =
+        text.match(/\b(19|20)\d{2}\b/);
+
+    if(match)
+        return parseInt(match[0]);
+
+    return 0;
+
+}
+
+
+
+/*
+#########################################################
+KINOTRON.TV
+#########################################################
+*/
+
+UA_CINEMA.SITES.kinotron = {
+
+    search: async function(query, year){
+
+        let url =
+            'https://kinotron.tv/index.php?do=search&subaction=search&story=' +
+            encodeURIComponent(query);
+
+        let resp =
+            await fetch(url);
+
+        let html =
+            await resp.text();
+
+        let doc =
+            new DOMParser()
+            .parseFromString(html,'text/html');
+
+        let links =
+            doc.querySelectorAll('a[href*=".html"]');
+
+        let results = [];
+
+        links.forEach(function(el){
+
+            let href =
+                el.href;
+
+            let title =
+                el.textContent.trim();
+
+            let y =
+                extractYear(title);
+
+            if(year && y && year !== y)
+                return;
+
+            results.push({
+
+                title: title,
+                year: y,
+                url: href
+
+            });
+
+        });
+
+        return results;
+
+    }
+
+};
+
+
+
+/*
+#########################################################
+LAVAKINO.CC
+#########################################################
+*/
+
+UA_CINEMA.SITES.lavakino = {
+
+    search: async function(query, year){
+
+        let url =
+            'https://lavakino.cc/index.php?do=search&subaction=search&story=' +
+            encodeURIComponent(query);
+
+        let resp =
+            await fetch(url);
+
+        let html =
+            await resp.text();
+
+        let doc =
+            new DOMParser()
+            .parseFromString(html,'text/html');
+
+        let links =
+            doc.querySelectorAll('a[href*=".html"]');
+
+        let results = [];
+
+        links.forEach(function(el){
+
+            let href =
+                el.href;
+
+            let title =
+                el.textContent.trim();
+
+            let y =
+                extractYear(title);
+
+            if(year && y && year !== y)
+                return;
+
+            results.push({
+
+                title: title,
+                year: y,
+                url: href
+
+            });
+
+        });
+
+        return results;
+
+    }
+
+};
+
+
+
+/*
+#########################################################
+UAKINOGO.IO
+#########################################################
+*/
+
+UA_CINEMA.SITES.uakinogo = {
+
+    search: async function(query, year){
+
+        let url =
+            'https://uakinogo.io/index.php?do=search&subaction=search&story=' +
+            encodeURIComponent(query);
+
+        let resp =
+            await fetch(url);
+
+        let html =
+            await resp.text();
+
+        let doc =
+            new DOMParser()
+            .parseFromString(html,'text/html');
+
+        let links =
+            doc.querySelectorAll('a[href*=".html"]');
+
+        let results = [];
+
+        links.forEach(function(el){
+
+            let href =
+                el.href;
+
+            let title =
+                el.textContent.trim();
+
+            let y =
+                extractYear(title);
+
+            if(year && y && year !== y)
+                return;
+
+            results.push({
+
+                title: title,
+                year: y,
+                url: href
+
+            });
+
+        });
+
+        return results;
+
+    }
+
+};
+
+
+
+/*
+#########################################################
+EXTEND STREAM ROUTER
+#########################################################
+*/
+
+let prevExtract =
+    UA_CINEMA.extractStream;
+
+UA_CINEMA.extractStream =
+async function(site, url){
+
+    if(
+        site === 'kinotron' ||
+        site === 'lavakino' ||
+        site === 'uakinogo'
+    ){
+
+        return await genericIframeExtractor(url);
+
+    }
+
+    return await prevExtract(site, url);
+
+};
+
+
+
+/*
+#########################################################
+GENERIC IFRAME EXTRACTOR
+#########################################################
+*/
+
+async function genericIframeExtractor(url){
+
+    let resp =
+        await fetch(url);
+
+    let html =
+        await resp.text();
+
+    let doc =
+        new DOMParser()
+        .parseFromString(html,'text/html');
+
+
+    let iframe =
+        doc.querySelector('iframe');
+
+    if(!iframe)
+        return null;
+
+
+    let src =
+        iframe.src;
+
+    if(src.startsWith('//'))
+        src = 'https:' + src;
+
+
+    let iframeResp =
+        await fetch(src);
+
+    let iframeHtml =
+        await iframeResp.text();
+
+
+    let m3u8 =
+        iframeHtml.match(
+            /https?:\/\/[^"]+\.m3u8[^"]*/
+        );
+
+    if(!m3u8)
+        return null;
+
+
+    return {
+
+        url: m3u8[0],
+        type: 'hls'
+
+    };
+
+}
+
+
+})();
+
+/*
+#########################################################
+Block 10
+#########################################################
+*/
+
+(function(){
+
+'use strict';
+
+if(!window.UA_CINEMA) return;
+
+const UA_CINEMA = window.UA_CINEMA;
+
+
+/*
+#########################################################
+HELPER YEAR
+#########################################################
+*/
+
+function extractYear(text){
+
+    if(!text) return 0;
+
+    let match =
+        text.match(/\b(19|20)\d{2}\b/);
+
+    if(match)
+        return parseInt(match[0]);
+
+    return 0;
+
+}
+
+
+
+/*
+#########################################################
+HDREZKA.INC
+#########################################################
+*/
+
+UA_CINEMA.SITES.hdrezka = {
+
+    search: async function(query, year){
+
+        let url =
+            'https://hdrezka.inc/search/?do=search&subaction=search&q=' +
+            encodeURIComponent(query);
+
+        let resp =
+            await fetch(url);
+
+        let html =
+            await resp.text();
+
+        let doc =
+            new DOMParser()
+            .parseFromString(html,'text/html');
+
+        let links =
+            doc.querySelectorAll('a[href*=".html"]');
+
+        let results = [];
+
+        links.forEach(function(el){
+
+            let href =
+                el.href;
+
+            let title =
+                el.textContent.trim();
+
+            let y =
+                extractYear(title);
+
+            if(year && y && year !== y)
+                return;
+
+            results.push({
+
+                title: title,
+                year: y,
+                url: href
+
+            });
+
+        });
+
+        return results;
+
+    }
+
+};
+
+
+
+/*
+#########################################################
+FILMIX.MY
+#########################################################
+*/
+
+UA_CINEMA.SITES.filmix = {
+
+    search: async function(query, year){
+
+        let url =
+            'https://filmix.my/search/' +
+            encodeURIComponent(query);
+
+        let resp =
+            await fetch(url);
+
+        let html =
+            await resp.text();
+
+        let doc =
+            new DOMParser()
+            .parseFromString(html,'text/html');
+
+        let links =
+            doc.querySelectorAll('a[href*=".html"]');
+
+        let results = [];
+
+        links.forEach(function(el){
+
+            let href =
+                el.href;
+
+            let title =
+                el.textContent.trim();
+
+            let y =
+                extractYear(title);
+
+            if(year && y && year !== y)
+                return;
+
+            results.push({
+
+                title: title,
+                year: y,
+                url: href
+
+            });
+
+        });
+
+        return results;
+
+    }
+
+};
+
+
+
+/*
+#########################################################
+EXTEND STREAM ROUTER FINAL
+#########################################################
+*/
+
+let prevExtractor =
+    UA_CINEMA.extractStream;
+
+UA_CINEMA.extractStream =
+async function(site, url){
+
+    if(
+        site === 'hdrezka' ||
+        site === 'filmix'
+    ){
+
+        return await finalIframeExtractor(url);
+
+    }
+
+    return await prevExtractor(site, url);
+
+};
+
+
+
+/*
+#########################################################
+FINAL IFRAME EXTRACTOR
+#########################################################
+*/
+
+async function finalIframeExtractor(url){
+
+    try{
+
+        let resp =
+            await fetch(url);
+
+        let html =
+            await resp.text();
+
+        let doc =
+            new DOMParser()
+            .parseFromString(html,'text/html');
+
+
+        let iframe =
+            doc.querySelector('iframe');
+
+        if(!iframe)
+            return null;
+
+
+        let src =
+            iframe.src;
+
+        if(src.startsWith('//'))
+            src = 'https:' + src;
+
+
+        let iframeResp =
+            await fetch(src);
+
+        let iframeHtml =
+            await iframeResp.text();
+
+
+        let m3u8 =
+            iframeHtml.match(
+                /https?:\/\/[^"]+\.m3u8[^"]*/
+            );
+
+        if(!m3u8)
+            return null;
+
+
+        return {
+
+            url: m3u8[0],
+            type: 'hls'
+
+        };
+
+    }
+    catch(e){
+
+        console.error(e);
+
+        return null;
+
+    }
+
+}
+
+
+
+/*
+#########################################################
+FINAL UI EMPTY STYLE
+#########################################################
+*/
+
+let style =
+document.createElement('style');
+
+style.innerHTML = `
+
+.ua-cinema-item{
+
+    padding:15px;
+    margin:10px 0;
+
+    background:rgba(255,255,255,0.05);
+
+    border-radius:10px;
+
+    cursor:pointer;
+
+}
+
+.ua-cinema-item:hover{
+
+    background:rgba(255,255,255,0.1);
+
+}
+
+.ua-cinema-item__site{
+
+    font-weight:bold;
+    color:#ffd700;
+
+}
+
+.ua-cinema-empty{
+
+    padding:40px;
+    text-align:center;
+    font-size:20px;
+
+}
+
+.ua-cinema-season,
+.ua-cinema-episode{
+
+    padding:15px;
+    margin:5px;
+
+    background:rgba(255,255,255,0.05);
+
+    border-radius:8px;
+
+    cursor:pointer;
+
+}
+
+.ua-cinema-resume{
+
+    padding:20px;
+    margin-bottom:20px;
+
+    background:rgba(255,215,0,0.1);
+
+    border-radius:10px;
+
+    cursor:pointer;
+
+}
+
+`;
+
+document.head.appendChild(style);
+
+
+
+/*
+#########################################################
+PLUGIN READY
+#########################################################
+*/
+
+UA_CINEMA.log('UA CINEMA PLUGIN READY');
+
+
+})();
+
