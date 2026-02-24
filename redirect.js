@@ -1,7 +1,7 @@
 (function() {
     'use strict';
 
-    // Локалізація
+    // 1. Локалізація
     Lampa.Lang.add({
         location_redirect_title: {
             ru: 'Смена сервера',
@@ -36,25 +36,30 @@
 
     // 3. Функція перевірки та переходу
     function checkRedirect() {
-        // Аварійний стоп: якщо в адресі є #no_redirect, ми не перекидаємо
+        // Аварійний стоп
         if (window.location.hash === '#no_redirect') {
             console.log('Redirect cancelled by user (#no_redirect)');
-            Lampa.Noty.show('Redirect cancelled (#no_redirect)');
             return;
         }
 
         var target = Lampa.Storage.get('location_server');
-        var current = window.location.hostname;
+        
+        // Отримуємо поточний домен і видаляємо "www." для точного порівняння
+        var current = (window.location.hostname || '').replace(/^www\./i, '');
 
-        // Перевірка: чи є ціль, чи це не "поточний", і чи ми вже не там
-        if (target && target !== '-' && target !== '' && current !== target) {
-            // Показуємо користувачеві, що відбувається
-            Lampa.Noty.show(Lampa.Lang.translate('location_redirect_process') + target);
-            
-            // Невелика затримка (опціонально), щоб Lampa встигла зберегти стан, якщо треба
-            setTimeout(function() {
-                window.location.href = 'http://' + target;
-            }, 500); 
+        if (target && target !== '-' && target !== '') {
+            // Видаляємо "www." із цільового домену на всякий випадок
+            var cleanTarget = target.replace(/^www\./i, '');
+
+            // Якщо ми ще не на цільовому домені
+            if (current !== cleanTarget) {
+                Lampa.Noty.show(Lampa.Lang.translate('location_redirect_process') + target);
+                
+                setTimeout(function() {
+                    // Використовуємо https:// замість http:// для уникнення подвійних редіректів сервером
+                    window.location.href = 'https://' + target;
+                }, 500); 
+            }
         }
     }
 
@@ -73,28 +78,23 @@
                 type: 'select',
                 values: {
                     '-': Lampa.Lang.translate('location_redirect_current'),
-                    'lampaua.mooo.com': 'lampaua.mooo.com', // Мій сервер
-                    'lampa.mx': 'lampa.mx'                  // Офіційний
+                    'lampaua.mooo.com': 'lampaua.mooo.com',
+                    'lampa.mx': 'lampa.mx'
                 },
                 default: '-'
             },
             field: {
                 name: Lampa.Lang.translate('location_redirect_select_domain'),
-                description: 'Автоматичний перехід на обраний домен (HTTP)'
+                description: 'Автоматичний перехід на обраний домен'
             },
             onChange: function (value) {
-                if (value !== '-') {
-                    Lampa.Storage.set('location_server', value);
-                    checkRedirect();
-                } else {
-                    // Якщо вибрали "Поточний", очищаємо налаштування для цього домену
-                    Lampa.Storage.set('location_server', '-');
-                }
+                Lampa.Storage.set('location_server', value);
+                checkRedirect();
             }
         });
         
         // Запускаємо перевірку при завантаженні
-        checkRedirect();
+        setTimeout(checkRedirect, 500); // Затримка при старті, щоб Lampa встигла завантажити налаштування
     }
 
     if (window.appready) initPlugin();
