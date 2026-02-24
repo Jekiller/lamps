@@ -1,31 +1,17 @@
 (function() {
     'use strict';
 
-    // 1. Локалізація
+    // 1. Унікальний ключ, щоб не конфліктувати з системними налаштуваннями Lampa
+    var STORAGE_KEY = 'plugin_custom_domain_target_v2';
+
+    // 2. Локалізація
     Lampa.Lang.add({
-        location_redirect_title: {
-            ru: 'Смена сервера',
-            uk: 'Зміна сервера',
-            en: 'Change server'
-        },
-        location_redirect_current: {
-            ru: 'Текущий',
-            uk: 'Поточний',
-            en: 'Current'
-        },
-        location_redirect_select_domain: {
-            ru: 'Выберите домен Lampa',
-            uk: 'Виберіть домен Lampa',
-            en: 'Choose Lampa domain'
-        },
-        location_redirect_process: {
-            ru: 'Переход на сервер: ',
-            uk: 'Перехід на сервер: ',
-            en: 'Redirecting to: '
-        }
+        location_redirect_title: { ru: 'Смена сервера', uk: 'Зміна сервера', en: 'Change server' },
+        location_redirect_current: { ru: 'Текущий', uk: 'Поточний', en: 'Current' },
+        location_redirect_select_domain: { ru: 'Выберите домен Lampa', uk: 'Виберіть домен Lampa', en: 'Choose Lampa domain' },
+        location_redirect_process: { ru: 'Переход на: ', uk: 'Перехід на: ', en: 'Redirecting to: ' }
     });
 
-    // 2. Іконка
     var icon_server_redirect = `<svg height="36" viewBox="0 0 38 36" fill="none" xmlns="http://www.w3.org/2000/svg">
         <path d="M19 2L24 7L19 12" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
         <path d="M19 24L24 29L19 34" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -34,32 +20,44 @@
         <circle cx="19" cy="18" r="3" stroke="white" stroke-width="2"/>
     </svg>`;
 
-    // 3. Функція перевірки та переходу
+    // 3. Функція перевірки
     function checkRedirect() {
-        // Аварійний стоп
-        if (window.location.hash === '#no_redirect') {
-            console.log('Redirect cancelled by user (#no_redirect)');
+        // Аварійний стоп користувача
+        if (window.location.hash === '#no_redirect') return;
+
+        // ЗАХИСТ 1: Якщо ми щойно прийшли з редіректу - зупиняємось
+        if (window.location.href.indexOf('redirect_done=1') !== -1) {
+            console.log('Redirect finished cleanly. Stopping to prevent loop.');
             return;
         }
 
-        var target = Lampa.Storage.get('location_server');
-        
-        // Отримуємо поточний домен і видаляємо "www." для точного порівняння
-        var current = (window.location.hostname || '').replace(/^www\./i, '');
+        var target = Lampa.Storage.get(STORAGE_KEY);
+        if (!target || target === '-') return; // Якщо нічого не обрано - нічого не робимо
 
-        if (target && target !== '-' && target !== '') {
-            // Видаляємо "www." із цільового домену на всякий випадок
-            var cleanTarget = target.replace(/^www\./i, '');
+        var current = (window.location.hostname || '').toLowerCase().replace(/^www\./i, '');
+        var cleanTarget = target.toLowerCase().replace(/^www\./i, '');
 
-            // Якщо ми ще не на цільовому домені
-            if (current !== cleanTarget) {
-                Lampa.Noty.show(Lampa.Lang.translate('location_redirect_process') + target);
-                
-                setTimeout(function() {
-                    // Використовуємо https:// замість http:// для уникнення подвійних редіректів сервером
-                    window.location.href = 'https://' + target;
-                }, 500); 
+        if (current !== cleanTarget) {
+            // ЗАХИСТ 2: Блокування циклу перезавантажень
+            if (sessionStorage.getItem('anti_loop_lock') === cleanTarget) {
+                console.log('Infinite loop prevented by sessionStorage lock.');
+                Lampa.Noty.show('Помилка: не вдалося закріпитись на новому сервері.');
+                Lampa.Storage.set(STORAGE_KEY, '-'); // Скидаємо налаштування на "Поточний"
+                return;
             }
+
+            // Ставимо "замок" перед тим, як перейти
+            sessionStorage.setItem('anti_loop_lock', cleanTarget);
+
+            Lampa.Noty.show(Lampa.Lang.translate('location_redirect_process') + target);
+            
+            setTimeout(function() {
+                // ЗАХИСТ 3: Додаємо мітку в URL для нового сервера
+                window.location.href = 'https://' + target + '/?redirect_done=1';
+            }, 500); 
+        } else {
+            // Ми на правильному сайті! Знімаємо замок.
+            sessionStorage.removeItem('anti_loop_lock');
         }
     }
 
@@ -74,7 +72,7 @@
         Lampa.SettingsApi.addParam({
             component: 'location_redirect',
             param: {
-                name: 'location_server',
+                name: STORAGE_KEY, // Використовуємо новий безпечний ключ
                 type: 'select',
                 values: {
                     '-': Lampa.Lang.translate('location_redirect_current'),
@@ -88,13 +86,13 @@
                 description: 'Автоматичний перехід на обраний домен'
             },
             onChange: function (value) {
-                Lampa.Storage.set('location_server', value);
+                Lampa.Storage.set(STORAGE_KEY, value);
                 checkRedirect();
             }
         });
         
-        // Запускаємо перевірку при завантаженні
-        setTimeout(checkRedirect, 500); // Затримка при старті, щоб Lampa встигла завантажити налаштування
+        // Запускаємо через пів секунди після старту
+        setTimeout(checkRedirect, 500);
     }
 
     if (window.appready) initPlugin();
